@@ -53,6 +53,12 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
 
+      # `quick` makes cargo-audit required as soon as the target has a lockfile,
+      # and the runner images do not ship it. Without the binary the auditor
+      # exits 2 (missing prerequisites), which is not a verdict and fails here.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
       - name: Report the toolchain this run will use
         run: |
           cargo --version

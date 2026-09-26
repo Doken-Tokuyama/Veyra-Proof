@@ -277,9 +277,13 @@ def test_sync_never_touches_the_real_home(sync, tmp_path) -> None:
     """Regression guard: a sandboxed run must not reach the user's real home."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
-    real_home = Path.home().resolve()
     assert sync.main(argv) == 0
-    assert not str(sync.LOG_PATH).startswith(str(real_home))
+    # Windows keeps %TEMP% inside the user profile, so "outside the real home"
+    # is unachievable for any temp file there and a prefix comparison against
+    # Path.home() fails on every Windows run. The invariant that holds on all
+    # platforms is containment in the sandbox: a run that reset LOG_PATH to
+    # Path.home() lands outside it on Windows as well.
+    assert sync.LOG_PATH.resolve().is_relative_to(tmp_path.resolve())
 
 
 def test_write_atomic_leaves_no_temp_file(sync, tmp_path) -> None:
