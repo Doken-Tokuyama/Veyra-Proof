@@ -1,0 +1,57 @@
+name: Publish to PyPI
+
+# Publishing uses PyPI trusted publishing (OIDC): the `id-token: write`
+# permission below is what replaces an API token. Nothing secret lives in this
+# repository, and nothing needs rotating.
+#
+# One-time setup on PyPI, for the project `veyra-proof`:
+#   https://pypi.org/manage/account/publishing/ -> add a pending publisher
+#     owner:  ExyonQ
+#     repo:   Veyra-Proof
+#     workflow: publish.yml
+# The `pypi` environment referenced below must also exist on the repository.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Describe what will be published
+        run: ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

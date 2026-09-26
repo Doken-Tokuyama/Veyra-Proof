@@ -1,0 +1,29 @@
+# Optional Veyra configuration.
+#
+# Veyra never creates this file for you and never edits Cargo.toml. Copy it to
+# the root of a Cargo workspace and keep only the keys you actually need.
+#
+# Anything left commented keeps the built-in default.
+
+[project]
+# Paths that carry the most risk. Empty means "scan everything".
+critical_paths = []
+# critical_paths = ["src/auth", "src/payments"]
+
+[policy]
+# Every key below is optional. Uncomment only what you want to change.
+#
+# install_missing        = false   # allow `cargo install` of missing tools
+# update_lockfile        = false   # allow `cargo update`
+# allow_manifest_changes = false   # reserved; V1 performs no manifest edits
+# anti_theater           = true    # heuristic scan for theatrical / fake code
+
+# Fuzzing is only attempted for targets that really exist. Do not invent paths:
+# a configured-but-absent target is reported as SKIPPED with that reason.
+#
+# [[fuzz]]
+# path = "fuzz_targets"
+# targets = ["parse_fuzzer"]
+
+# [[mutants]]
+# paths = ["src/critical"]

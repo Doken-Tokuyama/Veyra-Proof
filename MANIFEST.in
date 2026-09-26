@@ -1,0 +1,27 @@
+# The published sdist should describe the whole product, not just the importable
+# package. Half of what this project ships is the agent skill, and the other
+# half is the tooling that keeps it honest.
+#
+# `.cursor` is listed file by file on purpose. A wildcard there would sweep up
+# editor and agent state that happens to sit in the working copy — brain
+# databases, hook scripts, local rule files — and none of that belongs on PyPI.
+
+include LICENSE
+include README.md
+include requirements-dev.txt
+include veyra-proof.spec
+include MANIFEST.in
+
+include .cursor/skills/veyra-proof/SKILL.md
+include .cursor/skills/veyra-proof/reference.md
+include Veyra/skills/veyra-proof/SKILL.md
+include Veyra/skills/veyra-proof/reference.md
+
+recursive-include scripts *.py
+recursive-include Veyra *.md *.py *.toml LICENSE
+recursive-include tests *.py *.json *.toml *.lock *.rs
+recursive-include .github *.yml
+
+global-exclude __pycache__/* *.py[cod] .DS_Store
+prune tests/fixtures/demo_crate/target
+prune tests/fixtures/demo_crate/.veyra

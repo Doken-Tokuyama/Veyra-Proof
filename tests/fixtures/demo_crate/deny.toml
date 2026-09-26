@@ -1,0 +1,19 @@
+# Minimal policy for the Veyra demo fixture.
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = ["MIT"]
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

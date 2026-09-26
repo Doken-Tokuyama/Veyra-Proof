@@ -1,0 +1,21 @@
+{
+  "packages": [
+    {
+      "name": "demo",
+      "version": "0.1.0",
+      "id": "demo 0.1.0 (path+file:///tmp/demo)",
+      "targets": [
+        {
+          "name": "demo",
+          "kind": ["lib"],
+          "src_path": "/tmp/demo/src/lib.rs"
+        }
+      ]
+    }
+  ],
+  "workspace_members": ["demo 0.1.0 (path+file:///tmp/demo)"],
+  "workspace_default_members": ["demo 0.1.0 (path+file:///tmp/demo)"],
+  "workspace_root": "/tmp/demo",
+  "target_directory": "/tmp/demo/target",
+  "resolve": null
+}

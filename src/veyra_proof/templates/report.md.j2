@@ -1,0 +1,50 @@
+# Veyra Proof Report
+
+- Workspace: {{ workspace }}
+- Timestamp UTC: {{ timestamp }}
+- OS / Architecture: {{ os_arch }}
+- Rust toolchain: {{ toolchain }}
+- Profile: {{ profile }}
+- Decision: {{ decision }}
+- Decision reason: {{ decision_reason }}
+- Evidence manifest: manifest.json
+
+## OK
+
+{% for name in ok_tools %}- {{ name }}
+{% else %}- (none)
+{% endfor %}
+
+## Problems
+
+{% for block in problems %}
+### {{ block.name }}
+{% for item in block.items %}- {{ item }}
+{% endfor %}
+{% else %}
+- (none)
+{% endfor %}
+
+## Skipped
+
+{% for item in skipped %}- {{ item }}
+{% else %}- (none)
+{% endfor %}
+
+## Errors
+
+{% for item in errors %}- {{ item }}
+{% else %}- (none)
+{% endfor %}
+
+## Project Changes
+
+{% for item in changes %}- {{ item }}
+{% else %}- No project manifest or lockfile changes detected.
+{% endfor %}
+
+{#
+  NOTE: Production reports are rendered by reporting.render_markdown()
+  (zero Jinja dependency). This template mirrors that structure for
+  documentation and future optional Jinja rendering.
+#}
