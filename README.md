@@ -1,5 +1,9 @@
 # Veyra Proof
 
+[![CI](https://github.com/ExyonQ/Veyra-Proof/actions/workflows/ci.yml/badge.svg)](https://github.com/ExyonQ/Veyra-Proof/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 **A Rust audit that tells you what it can prove — and what it can't.**
 
 An audit that says "all clear" without evidence is a story, not a result. Veyra Proof runs the real cargo toolchain on your machine, prints the real exit codes, and writes every log, hash and skip-reason into `.veyra/evidence/<UTC>/`.
