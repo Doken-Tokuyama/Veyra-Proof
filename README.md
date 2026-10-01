@@ -262,6 +262,10 @@ cd Veyra-Proof
 
 Tests mock `subprocess.run` and do not install Rust tools or mutate real projects.
 
+## Contact
+
+[contact@exyonq.org](mailto:contact@exyonq.org)
+
 ## Security
 
 Report security problems to [security@exyonq.org](mailto:security@exyonq.org). See [SECURITY.md](SECURITY.md).
