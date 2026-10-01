@@ -176,6 +176,10 @@ because those rules are the reason the output is trustworthy.
 3. Keep it harness-neutral: no absolute machine paths, no vendor CLI names.
 4. If you add a harness, add it to `install.py` **and** to the table above.
 
+## Security
+
+Report security problems to [security@exyonq.org](mailto:security@exyonq.org).
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — Copyright (c) 2026 Antonio Cantallops Alba. See [LICENSE](LICENSE).
