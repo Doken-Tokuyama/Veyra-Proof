@@ -19,6 +19,12 @@ A successful ``cargo fmt --check`` on already-formatted code prints nothing, so
 an empty log is a silent success and is not treated as a defect. The artifact
 has to exist; it does not have to say anything.
 
+Every log the auditor writes is pinned by its sha256 in the report, so a log
+edited or deleted after the run fails this check instead of passing quietly. A
+few tools also pin artifacts that live elsewhere and name them with synthetic
+keys (``a:<crate>`` inside a build directory); those are verified only when the
+file can be located from the report alone.
+
 Exit 0 when the run produced usable evidence, 1 when it did not. A verdict of
 "problems found" (auditor exit 1) is a successful audit, not a failed one, so it
 is accepted here as well; exits 2 and 3 mean missing prerequisites or an
@@ -28,6 +34,7 @@ internal error, and do fail.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -56,6 +63,37 @@ VERDICT_EXITS = {0, 1}
 E2E_TOOL_ID = "veyra-e2e"
 
 CORE_ARTIFACTS = ("report.json", "report.md", "manifest.json")
+
+# The files a tool writes as evidence for its own verdict. These have to exist
+# and match their recorded digest; an absent log is a claim nobody can check.
+EVIDENCE_LOG_NAMES = ("stdout.log", "stderr.log", "skip.txt")
+
+
+def _is_digest(value: object) -> bool:
+    """A sha256 hex digest. A few tools store a bare path in this field instead,
+    which is not a digest and is left alone rather than guessed at."""
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def artifact_path(directory: Path, tool_id: str, name: str) -> Path:
+    """Where a pinned artifact should be. A bare file name is evidence the tool
+    wrote in its own directory; a path names something built elsewhere."""
+    if "/" in name or "\\" in name:
+        candidate = Path(name)
+        return candidate if candidate.is_absolute() else directory / candidate
+    return directory / "tools" / tool_id / name
 
 
 def evidence_root(target: Path) -> Path:
@@ -160,6 +198,37 @@ def verify(
                         f"summary claims {status}/{code}, its own record says "
                         f"{own.get('status')}/{own.get('exit_code')}"
                     )
+
+        # Every recorded digest has to still describe the file it pinned, so an
+        # edited or deleted log fails here instead of passing quietly.
+        if fault is None and own is not None:
+            declared = entry.get("artifact_hashes") or {}
+            recorded = own.get("artifact_hashes") or {}
+            for name, digest in sorted(declared.items()):
+                if not _is_digest(digest):
+                    continue
+                if recorded.get(name) != digest:
+                    fault = f"report and its own record disagree about the digest of {name}"
+                    break
+                path = artifact_path(directory, tool_id, name)
+                if name in EVIDENCE_LOG_NAMES and not path.is_file():
+                    fault = f"records a digest for {name}, which is not on disk"
+                    break
+                if path.is_file() and _sha256(path) != digest:
+                    fault = f"{name} does not match its recorded digest"
+                    break
+
+        # An OK claim has to pin the log it points at, not merely leave it there.
+        if fault is None and own is not None and status == "OK":
+            declared = entry.get("artifact_hashes") or {}
+            for field in ("stdout_path", "stderr_path"):
+                raw = entry.get(field)
+                if not raw:
+                    continue
+                path = Path(raw)
+                if path.is_file() and not _is_digest(declared.get(path.name)):
+                    fault = f"{path.name} is on disk but its digest was not recorded"
+                    break
 
         # A tool that verifies end-to-end behavior has to show what it observed.
         if (

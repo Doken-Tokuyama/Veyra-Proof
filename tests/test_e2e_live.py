@@ -111,10 +111,17 @@ def test_the_demo_binary_is_verified_end_to_end(fixture_copy: Path) -> None:
     # The binary that produced this behavior is pinned by hash, and the hash
     # still matches the file cargo built.
     hashes = entry["artifact_hashes"]
-    assert len(hashes) == 1
-    binary = Path(next(iter(hashes)))
+    binary_keys = [key for key in hashes if "/" in key]
+    assert len(binary_keys) == 1, f"expected exactly one pinned binary, got {sorted(hashes)}"
+    binary = Path(binary_keys[0])
     assert binary.is_file()
-    assert hashlib.sha256(binary.read_bytes()).hexdigest() == next(iter(hashes.values()))
+    assert hashlib.sha256(binary.read_bytes()).hexdigest() == hashes[binary_keys[0]]
+
+    # The logs the verdict rests on are pinned too, so neither can be swapped
+    # for a friendlier one after the run.
+    for name in ("stdout.log", "stderr.log"):
+        path = evidence / "tools" / "veyra-e2e" / name
+        assert hashes[name] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_a_wrong_expectation_is_rejected_with_the_value_observed(fixture_copy: Path) -> None:

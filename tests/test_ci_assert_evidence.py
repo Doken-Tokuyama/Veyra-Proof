@@ -8,6 +8,7 @@ here against a synthetic evidence directory with a fault deliberately injected.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -17,6 +18,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "ci_assert_evidence.py"
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _load():
@@ -41,8 +46,14 @@ def _evidence(tmp_path: Path, *, status: str = "OK", exit_code: int = 0) -> Path
 
     log = tools / "stdout.log"
     log.write_text("", encoding="utf-8")  # a silent success writes no output
+    digests = {"stdout.log": _sha256(log)}
 
-    record = {"tool_id": "rustfmt", "status": status, "exit_code": exit_code}
+    record = {
+        "tool_id": "rustfmt",
+        "status": status,
+        "exit_code": exit_code,
+        "artifact_hashes": digests,
+    }
     (tools / "result.json").write_text(json.dumps(record), encoding="utf-8")
 
     report = {
@@ -54,6 +65,7 @@ def _evidence(tmp_path: Path, *, status: str = "OK", exit_code: int = 0) -> Path
                 "status": status,
                 "exit_code": exit_code,
                 "stdout_path": str(log),
+                "artifact_hashes": digests,
             }
         ],
     }
@@ -125,9 +137,17 @@ def test_skipped_tool_is_not_demanded_a_log(checker, tmp_path) -> None:
     directory = _evidence(tmp_path, status="SKIPPED", exit_code=None)
     report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
     report["results"][0]["stdout_path"] = "/nonexistent/nowhere.log"
+    report["results"][0]["artifact_hashes"] = {}
     (directory / "report.json").write_text(json.dumps(report), encoding="utf-8")
     (directory / "tools" / "rustfmt" / "result.json").write_text(
-        json.dumps({"tool_id": "rustfmt", "status": "SKIPPED", "exit_code": None}),
+        json.dumps(
+            {
+                "tool_id": "rustfmt",
+                "status": "SKIPPED",
+                "exit_code": None,
+                "artifact_hashes": {},
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -187,12 +207,14 @@ def _e2e_evidence(tmp_path: Path, *, log_text: str, declared_scenarios: int) -> 
     tools = directory / "tools" / "veyra-e2e"
     log = tools / "stdout.log"
     log.write_text(log_text, encoding="utf-8")
+    digests = {"stdout.log": _sha256(log)}
     record = {
         "tool_id": "veyra-e2e",
         "status": "OK",
         "exit_code": 0,
         "environment": {"evidence_kind": "e2e"},
         "stdout_path": str(log),
+        "artifact_hashes": digests,
     }
     (tools / "result.json").write_text(json.dumps(record), encoding="utf-8")
     report = {
@@ -204,6 +226,7 @@ def _e2e_evidence(tmp_path: Path, *, log_text: str, declared_scenarios: int) -> 
                 "status": "OK",
                 "exit_code": 0,
                 "stdout_path": str(log),
+                "artifact_hashes": digests,
             }
         ],
     }
@@ -257,6 +280,54 @@ def test_an_end_to_end_scenario_line_without_an_observed_exit_is_caught(checker,
     problems, _ = checker.verify(directory, 0, target=target)
 
     assert any("records no observed exit code" in p for p in problems)
+
+
+def test_an_edited_log_is_caught_by_its_recorded_digest(checker, tmp_path) -> None:
+    """The point of pinning: a log rewritten after the run cannot pass as the
+    evidence the verdict was based on."""
+    directory = _evidence(tmp_path)
+    (directory / "tools" / "rustfmt" / "stdout.log").write_text(
+        "warning: something the auditor never saw\n", encoding="utf-8"
+    )
+
+    problems, _ = checker.verify(directory, 0)
+
+    assert any("does not match its recorded digest" in p for p in problems)
+
+
+def test_a_pinned_log_that_is_gone_is_caught(checker, tmp_path) -> None:
+    directory = _evidence(tmp_path, status="FINDINGS")
+    log = directory / "tools" / "rustfmt" / "stdout.log"
+    log.unlink()
+
+    problems, _ = checker.verify(directory, 0)
+
+    assert any("which is not on disk" in p for p in problems)
+
+
+def test_an_ok_result_whose_log_is_not_pinned_is_caught(checker, tmp_path) -> None:
+    """A log left on disk without a digest can be swapped afterwards, so it is
+    not evidence that anything can be checked against."""
+    directory = _evidence(tmp_path)
+    report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
+    report["results"][0]["artifact_hashes"] = {}
+    (directory / "report.json").write_text(json.dumps(report), encoding="utf-8")
+
+    problems, _ = checker.verify(directory, 0)
+
+    assert any("digest was not recorded" in p for p in problems)
+
+
+def test_a_report_contradicting_its_record_about_a_digest_is_caught(checker, tmp_path) -> None:
+    directory = _evidence(tmp_path)
+    record_path = directory / "tools" / "rustfmt" / "result.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["artifact_hashes"]["stdout.log"] = "0" * 64
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+
+    problems, _ = checker.verify(directory, 0)
+
+    assert any("disagree about the digest" in p for p in problems)
 
 
 def test_a_report_with_no_results_is_caught(checker, tmp_path) -> None:

@@ -11,6 +11,7 @@ from typing import Any
 
 from veyra_proof.command_runner import CommandRunner
 from veyra_proof.config import VeyraConfig
+from veyra_proof.hashing import sha256_file
 from veyra_proof.models import (
     DetectionResult,
     Finding,
@@ -26,6 +27,11 @@ from veyra_proof.platform_info import PlatformInfo
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Evidence digests collected while a tool runs, keyed by tool id then by the
+# name of the file inside that tool's evidence directory.
+_EVIDENCE_DIGESTS_KEY = "evidence_digests"
 
 
 @dataclass
@@ -151,6 +157,7 @@ class Tool(ABC):
         tool_dir.mkdir(parents=True, exist_ok=True)
         skip_path = tool_dir / "skip.txt"
         skip_path.write_text(reason + "\n", encoding="utf-8")
+        self._pin_evidence(context, skip_path)
 
         stdout_path = tool_dir / "stdout.log"
         stderr_path = tool_dir / "stderr.log"
@@ -174,6 +181,19 @@ class Tool(ABC):
         self.save_result_json(context, tr)
         return tr
 
+    def _pin_evidence(self, context: AuditContext, path: Path) -> None:
+        """Record the digest of an evidence file this tool just wrote.
+
+        The digest is merged into ``artifact_hashes`` when the result is saved,
+        so the report states what its own logs held. An edit afterwards stops
+        matching the recorded value instead of passing unnoticed.
+        """
+        digest = sha256_file(path)
+        if digest is None:
+            return
+        by_tool = context.extras.setdefault(_EVIDENCE_DIGESTS_KEY, {})
+        by_tool.setdefault(self.id, {})[path.name] = digest
+
     def write_logs(
         self,
         context: AuditContext,
@@ -186,10 +206,18 @@ class Tool(ABC):
         stderr_path = tool_dir / "stderr.log"
         stdout_path.write_text(stdout, encoding="utf-8")
         stderr_path.write_text(stderr, encoding="utf-8")
+        self._pin_evidence(context, stdout_path)
+        self._pin_evidence(context, stderr_path)
         return str(stdout_path), str(stderr_path)
 
     def save_result_json(self, context: AuditContext, result: ToolResult) -> None:
         import json
+
+        # Whatever this tool wrote as evidence is pinned on the result itself, so
+        # the report can be checked against the files without a second source.
+        recorded = (context.extras.get(_EVIDENCE_DIGESTS_KEY) or {}).get(self.id) or {}
+        for name, digest in recorded.items():
+            result.artifact_hashes.setdefault(name, digest)
 
         tool_dir = context.evidence_dir / "tools" / self.id
         tool_dir.mkdir(parents=True, exist_ok=True)

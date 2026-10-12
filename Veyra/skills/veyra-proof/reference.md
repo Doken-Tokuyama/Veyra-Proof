@@ -56,6 +56,8 @@ Required in every profile exactly when scenarios are declared (and available to 
 
 Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` with `report.md`, `report.json`, `manifest.json`, per-tool logs, hashes.
 
+Every log a tool writes — `stdout.log`, `stderr.log`, and `skip.txt` when a tool skips after running — is pinned by its sha256 in that tool's `artifact_hashes`, so the report states what its own evidence held. `scripts/ci_assert_evidence.py` recomputes those digests and fails a report whose log changed after the run, was deleted, or is not pinned at all for an `OK` verdict.
+
 ## Safety defaults
 
 | Action | Default |

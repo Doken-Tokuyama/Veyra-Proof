@@ -143,6 +143,8 @@ Heavy tools are **SKIPPED** with an explicit reason when configuration/targets a
 
 Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` containing `report.md`, `report.json`, `manifest.json`, per-tool logs, and hashes.
 
+Each tool's logs are pinned by sha256 in the report, so the evidence can be checked against the claim rather than trusted: `python scripts/ci_assert_evidence.py <path>` recomputes the digests and fails when a log was edited after the run, is missing, or backs an `OK` verdict without ever being pinned.
+
 ## Optional `veyra.toml`
 
 Not created automatically. See the project specification for the full schema (`critical_paths`, policy flags, fuzz targets, mutants paths, `[e2e]` scenarios, etc.).

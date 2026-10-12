@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from veyra_proof.config import PolicyConfig, VeyraConfig
@@ -259,6 +260,34 @@ def test_semver_unpublished_crate_is_skipped_with_reason_not_findings(tmp_path) 
     assert tool_result.environment["skip_kind"] == "intentional"
     assert "baseline" in tool_result.summary
     assert tool_result.findings == []
+
+
+def test_every_evidence_log_is_pinned_by_its_digest(tmp_path) -> None:
+    """A verdict rests on its logs, so the digest of each has to travel with it:
+    an edited log then fails verification instead of passing quietly."""
+    runner = ScriptedRunner([result(stdout="0/0  0/0  0/0  0/0  0/0  :)\n")])
+    ctx = make_context(tmp_path, runner)
+
+    tool_result = CargoGeigerTool().run(ctx)
+
+    for name in ("stdout.log", "stderr.log"):
+        path = ctx.evidence_dir / "tools" / "geiger" / name
+        assert tool_result.artifact_hashes[name] == hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
+
+
+def test_a_skipped_tool_pins_the_reason_and_the_output(tmp_path) -> None:
+    runner = ScriptedRunner([result(exit_code=100, stderr=NO_BASELINE_OUTPUT)])
+    ctx = make_context(tmp_path, runner)
+
+    tool_result = SemverChecksTool().run(ctx)
+
+    for name in ("stderr.log", "skip.txt"):
+        path = ctx.evidence_dir / "tools" / "semver-checks" / name
+        assert tool_result.artifact_hashes[name] == hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
 
 
 def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path) -> None:
