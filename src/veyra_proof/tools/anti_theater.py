@@ -67,6 +67,43 @@ def _is_test_path(rel: str) -> bool:
 
 ASSERT_MACROS = ("assert!", "assert_eq!", "assert_ne!", "matches!", "pretty_assertions")
 
+# Oracles that also make a test fail observably: a failed `expect`/`unwrap`
+# panics, and a bare `panic!()` used as an oracle is deliberate.
+TEST_ORACLE_MARKERS = ASSERT_MACROS + ("panic!(", ".expect(", ".unwrap(", "debug_assert")
+
+
+def _test_module_lines(lines: list[str]) -> set[int]:
+    """1-based line numbers that fall inside a `#[cfg(test)]` module.
+
+    Production-path heuristics must not read test code as production: a
+    `panic!()` used as a test oracle is not unfinished error handling. The
+    attribute may sit on its own line or share the module's opening line.
+    """
+    inside: set[int] = set()
+    armed_at = 0
+    depth = 0
+    start = 0
+    for idx, line in enumerate(lines, start=1):
+        code = line.split("//", 1)[0]
+        if start == 0:
+            if not armed_at:
+                if "#[cfg(test)]" in code:
+                    armed_at = idx
+                continue
+            if "{" not in code:
+                # Attribute with no module behind it: it opens no test block.
+                if idx > armed_at + 3:
+                    armed_at = 0
+                continue
+            start = idx
+        depth += code.count("{") - code.count("}")
+        if depth <= 0:
+            inside.update(range(start, idx + 1))
+            armed_at = depth = start = 0
+    if start:
+        inside.update(range(start, len(lines) + 1))
+    return inside
+
 
 def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[Finding]:
     findings: list[Finding] = []
@@ -81,6 +118,7 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
         except OSError:
             continue
         lines = text.splitlines()
+        test_lines = _test_module_lines(lines)
         in_cfg_test = False
         cfg_test_depth = 0
         brace_balance = 0
@@ -134,7 +172,12 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                         )
                     )
 
-            if re.search(r"\bpanic!\s*\(", stripped) and _is_production_src(rel) and not _is_test_path(rel):
+            if (
+                re.search(r"\bpanic!\s*\(", stripped)
+                and _is_production_src(rel)
+                and not _is_test_path(rel)
+                and idx not in test_lines
+            ):
                 findings.append(
                     Finding(
                         rule="VT003",
@@ -279,11 +322,15 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                     )
                 )
 
-            # trivial public constant return — low/medium confidence warning only
-            if re.match(r"^\s*pub\s+fn\s+\w+", stripped) and idx < len(lines):
+            # trivial public constant return — low/medium confidence warning only.
+            # Only the function's own body counts: a guard like
+            # `if n == 0 { return 0; }` is edge-case logic, not a placeholder.
+            if re.match(r"^\s*pub\s+fn\s+\w+", stripped):
+                # The window includes the signature itself and needs no line
+                # after it, so a `pub fn` on the file's last line is still read.
                 window = "\n".join(lines[idx - 1 : min(idx + 6, len(lines))])
-                if re.search(r"\{\s*return\s+\d+\s*;\s*\}", window) or re.search(
-                    r"pub\s+fn\s+\w+[^{]*\{\s*\d+\s*\}", window
+                if re.search(
+                    r"pub\s+fn\s+\w+[^{]*\{\s*(?:return\s+)?\d+\s*;?\s*\}", window
                 ):
                     findings.append(
                         Finding(
@@ -312,7 +359,7 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                         depth -= 1
                     i += 1
                 body = text[start:i]
-                if not any(a in body for a in ASSERT_MACROS) and "should_panic" not in text[max(0, m.start() - 80) : m.start()]:
+                if not any(a in body for a in TEST_ORACLE_MARKERS) and "should_panic" not in text[max(0, m.start() - 80) : m.start()]:
                     line_no = text[: m.start()].count("\n") + 1
                     findings.append(
                         Finding(

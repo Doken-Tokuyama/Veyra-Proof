@@ -143,6 +143,115 @@ def test_anti_theater_todo(tmp_path):
     assert any(f.rule == "VT001" for f in findings)
 
 
+def test_anti_theater_panic_in_cfg_test_module_is_not_a_src_finding(tmp_path):
+    """`panic!()` used as a test oracle inside `#[cfg(test)] mod tests` is not
+    unfinished production error handling, even though the file lives in src/."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "pub fn half(n: i32) -> i32 {\n"
+        "    n / 2\n"
+        "}\n"
+        "\n"
+        "#[cfg(test)]\n"
+        "mod tests {\n"
+        "    use super::*;\n"
+        "\n"
+        "    #[test]\n"
+        "    fn half_is_half() {\n"
+        "        match half(3) {\n"
+        "            1 => {}\n"
+        '            other => panic!("unexpected {other}"),\n'
+        "        }\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    findings = analyze_rust_sources(tmp_path, [], PolicyConfig())
+    vt003 = [f for f in findings if f.rule == "VT003"]
+    assert vt003 == [], f"test-only panic! reported as production code: {vt003}"
+
+
+def test_anti_theater_panic_in_production_path_is_still_reported(tmp_path):
+    """Exempting cfg(test) blocks must not blanket-exempt src/ files."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "pub fn checked(n: i32) -> i32 {\n"
+        "    if n < 0 {\n"
+        '        panic!("negative input");\n'
+        "    }\n"
+        "    n\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    findings = analyze_rust_sources(tmp_path, [], PolicyConfig())
+    assert [f.line for f in findings if f.rule == "VT003"] == [3]
+
+
+def test_anti_theater_guard_clause_is_not_a_constant_stub(tmp_path):
+    """An early `return 0;` guard is edge-case logic; only a body that *is* a
+    literal is a placeholder, so the guard must not be read as one."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "pub fn clamp_low(n: i32) -> i32 {\n"
+        "    if n < 0 {\n"
+        "        return 0;\n"
+        "    }\n"
+        "    n\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    findings = analyze_rust_sources(tmp_path, [], PolicyConfig())
+    assert [f.rule for f in findings if f.rule == "VT014"] == []
+
+
+def test_anti_theater_trivial_constant_body_is_still_reported(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text("pub fn answer() -> i32 { 42 }\n", encoding="utf-8")
+    findings = analyze_rust_sources(tmp_path, [], PolicyConfig())
+    assert [f.rule for f in findings if f.rule == "VT014"] == ["VT014"]
+
+
+def test_anti_theater_test_without_any_oracle_is_reported(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "#[cfg(test)]\n"
+        "mod tests {\n"
+        "    #[test]\n"
+        "    fn only_runs_the_code() {\n"
+        "        std::hint::black_box(1 + 1);\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    findings = analyze_rust_sources(tmp_path, [], PolicyConfig())
+    assert [f.rule for f in findings if f.rule == "VT006"] == ["VT006"]
+
+
+def test_anti_theater_panicking_oracle_counts_as_an_oracle(tmp_path):
+    """A failed `unwrap`/`expect`/`panic!` makes the test fail observably, so
+    the test does have an oracle even though it holds no `assert` macro."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "#[cfg(test)]\n"
+        "mod tests {\n"
+        "    #[test]\n"
+        "    fn parses_a_valid_document() {\n"
+        '        let parsed = parse("1 + 1").expect("valid input must parse");\n'
+        "        std::hint::black_box(parsed);\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    findings = analyze_rust_sources(tmp_path, [], PolicyConfig())
+    assert [f.rule for f in findings if f.rule == "VT006"] == []
+
+
 def test_markdown_structure():
     md = render_markdown(
         workspace="/tmp/w",

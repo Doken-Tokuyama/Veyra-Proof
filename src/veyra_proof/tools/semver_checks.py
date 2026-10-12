@@ -8,6 +8,15 @@ from veyra_proof.models import DetectionResult, Finding
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import library_package_names
 
+# Signatures of "the baseline does not exist yet" (unpublished crate). Real API
+# violations must never match these: lint names may contain words like
+# "cannot" (e.g. function_cannot_unwind), so the markers are precise strings.
+NO_BASELINE_MARKERS = (
+    "not found in registry",
+    "failed to retrieve index",
+    "no published version",
+)
+
 
 class SemverChecksTool(Tool):
     id = "semver-checks"
@@ -54,8 +63,14 @@ class SemverChecksTool(Tool):
             status, severity, summary = "ERROR", "error", result.error or "semver-checks failed"
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "semver-checks passed"
-        elif "baseline" in text or "no current" in text or "cannot" in text:
-            return self.skipped(context, "semver-checks could not determine a baseline; configure baseline or skip")
+        elif any(m in text for m in NO_BASELINE_MARKERS):
+            # Crates with no published version have no registry baseline to diff
+            # against; the check cannot run, so it is skipped with the reason,
+            # never reported as a pass or as a violation.
+            return self.skipped(
+                context,
+                "semver-checks has no baseline for unpublished crates (no registry version to diff); configure a baseline or skip",
+            )
         else:
             findings.append(Finding(
                 rule="semver-violation",
