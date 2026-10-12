@@ -6,9 +6,12 @@ name: Publish to PyPI
 #
 # One-time setup on PyPI, for the project `veyra-proof`:
 #   https://pypi.org/manage/account/publishing/ -> add a pending publisher
-#     owner:  ExyonQ
+#     owner:  Doken-Tokuyama
 #     repo:   Veyra-Proof
 #     workflow: publish.yml
+# These must match the OIDC claims GitHub actually sends, which name the account
+# that owns the repository. A stale owner fails with `invalid-publisher` and
+# uploads nothing.
 # The `pypi` environment referenced below must also exist on the repository.
 
 on:

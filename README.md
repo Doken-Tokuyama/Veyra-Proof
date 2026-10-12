@@ -271,7 +271,7 @@ That check has its own tests (`tests/test_ci_assert_evidence.py`), which inject 
 
 One-time setup on PyPI, for the project `veyra-proof`:
 
-1. Create the project at <https://pypi.org/manage/account/publishing/> and add a pending publisher: owner `ExyonQ`, repository `Veyra-Proof`, workflow `publish.yml`.
+1. Create the project at <https://pypi.org/manage/account/publishing/> and add a pending publisher: owner `Doken-Tokuyama`, repository `Veyra-Proof`, workflow `publish.yml`, environment `pypi`. These have to match the OIDC claims GitHub sends, which name the account that owns the repository — a stale owner publishes nothing and fails with `invalid-publisher`.
 2. Create a `pypi` environment on the repository. The publish job declares it, which is what gates a release to someone who can approve it.
 
 The sdist carries the agent skill, the fan-out script, the CI workflows and the test suite, not just the importable package — half of what this project ships is the skill. `.cursor` is listed file by file in `MANIFEST.in` rather than by wildcard, so a stray editor or agent state directory in a working copy can never ride along.
