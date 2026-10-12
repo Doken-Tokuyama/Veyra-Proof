@@ -137,8 +137,30 @@ class Tool(ABC):
         skip_kind: str = "intentional",
         severity: Severity = "info",
     ) -> ToolResult:
+        """Record a skip without destroying evidence a run already wrote.
+
+        A tool may decide to skip *after* it ran a command and stored the real
+        output with ``write_logs`` (an unpublished crate has no baseline to diff
+        against; a declared fuzz target does not exist). The reason must not
+        overwrite that output — it would erase what the tool actually said — so
+        it is written to ``skip.txt`` and the raw logs are only created when the
+        tool never got to write any.
+        """
         now = utc_now_iso()
-        out, err = self.write_logs(context, reason + "\n", "")
+        tool_dir = context.evidence_dir / "tools" / self.id
+        tool_dir.mkdir(parents=True, exist_ok=True)
+        skip_path = tool_dir / "skip.txt"
+        skip_path.write_text(reason + "\n", encoding="utf-8")
+
+        stdout_path = tool_dir / "stdout.log"
+        stderr_path = tool_dir / "stderr.log"
+        if stdout_path.exists():
+            if not stderr_path.exists():
+                stderr_path.write_text("", encoding="utf-8")
+            out, err = str(stdout_path), str(stderr_path)
+        else:
+            out, err = self.write_logs(context, reason + "\n", "")
+
         tr = self.make_result(
             status="SKIPPED",
             severity=severity,
@@ -147,7 +169,7 @@ class Tool(ABC):
             finished_at=now,
             stdout_path=out,
             stderr_path=err,
-            environment={"skip_kind": skip_kind},
+            environment={"skip_kind": skip_kind, "skip_reason_path": str(skip_path)},
         )
         self.save_result_json(context, tr)
         return tr

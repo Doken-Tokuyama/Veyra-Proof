@@ -18,6 +18,7 @@ from veyra_proof.platform_info import PlatformInfo
 from veyra_proof.tools.base import AuditContext
 from veyra_proof.tools.geiger import CargoGeigerTool
 from veyra_proof.tools.semver_checks import SemverChecksTool
+from veyra_proof.tools.vet import CargoVetTool
 
 
 class ScriptedRunner:
@@ -258,6 +259,47 @@ def test_semver_unpublished_crate_is_skipped_with_reason_not_findings(tmp_path) 
     assert tool_result.environment["skip_kind"] == "intentional"
     assert "baseline" in tool_result.summary
     assert tool_result.findings == []
+
+
+def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path) -> None:
+    """The skip reason must not overwrite what the command actually printed.
+
+    The skip was classified *from* that output, so erasing it leaves a verdict
+    nobody can re-derive from the evidence.
+    """
+    runner = ScriptedRunner([result(exit_code=100, stderr=NO_BASELINE_OUTPUT)])
+    ctx = make_context(tmp_path, runner)
+
+    tool_result = SemverChecksTool().run(ctx)
+
+    assert tool_result.status == "SKIPPED"
+    kept = Path(tool_result.stdout_path).read_text(encoding="utf-8")
+    kept += Path(tool_result.stderr_path).read_text(encoding="utf-8")
+    assert "not found in registry" in kept, (
+        "the raw output that justified the skip was overwritten by the reason"
+    )
+    reason = ctx.evidence_dir / "tools" / "semver-checks" / "skip.txt"
+    assert reason.is_file()
+    assert "baseline" in reason.read_text(encoding="utf-8")
+    assert tool_result.environment["skip_reason_path"] == str(reason)
+
+
+def test_skip_without_running_records_the_reason_as_the_log(tmp_path) -> None:
+    """A tool that skipped before running anything has no output to keep, so the
+    reason is all there is to log."""
+    runner = ScriptedRunner([result()])
+    ctx = make_context(tmp_path, runner)
+
+    tool_result = CargoVetTool().run(ctx)
+
+    assert tool_result.status == "SKIPPED"
+    assert runner.calls == [], "the skip has to happen before any command runs"
+    reason = ctx.evidence_dir / "tools" / "vet" / "skip.txt"
+    assert "supply-chain/config.toml" in reason.read_text(encoding="utf-8")
+    assert (
+        Path(tool_result.stdout_path).read_text(encoding="utf-8").strip()
+        == tool_result.summary
+    )
 
 
 def test_semver_real_violation_is_findings_even_with_cannot_in_lint_name(tmp_path) -> None:
