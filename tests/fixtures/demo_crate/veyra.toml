@@ -1,0 +1,42 @@
+# Veyra configuration for the demo fixture.
+#
+# `[e2e]` declares the journeys the built binary must prove end to end. Veyra
+# compiles the workspace, runs the executable it produced, and compares what the
+# process actually did with what is declared here. A scenario that asserts
+# nothing observable is reported as vacuous rather than as a pass.
+
+[e2e]
+# The profile a shipping build uses, not the debug one, so the verified binary
+# is the binary under deployment.
+build_profile = "release"
+timeout_seconds = 120
+
+[[e2e.scenarios]]
+name = "add sums two integers and prints the result"
+argv = ["add", "1", "2"]
+expect_exit = 0
+expect_stdout_regex = '^3\r?\n?$'
+
+[[e2e.scenarios]]
+name = "divide reports a zero divisor instead of panicking"
+argv = ["divide", "1", "0"]
+expect_failure = true
+expect_stderr_regex = 'division by zero'
+
+[[e2e.scenarios]]
+name = "i32 overflow is reported instead of wrapping"
+argv = ["add", "2147483647", "1"]
+expect_failure = true
+expect_stderr_regex = 'overflow'
+
+[[e2e.scenarios]]
+name = "unknown command is rejected with usage on stderr"
+argv = ["frobnicate"]
+expect_failure = true
+expect_stderr_regex = 'unknown command'
+
+[[e2e.scenarios]]
+name = "help lists the commands and exits zero"
+argv = ["--help"]
+expect_exit = 0
+expect_stdout_regex = 'add <a> <b>'

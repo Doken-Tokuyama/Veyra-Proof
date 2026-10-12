@@ -8,6 +8,7 @@ from veyra_proof.tools.check_external_types import CheckExternalTypesTool
 from veyra_proof.tools.clippy import ClippyTool
 from veyra_proof.tools.deny import CargoDenyTool
 from veyra_proof.tools.dylint import DylintTool
+from veyra_proof.tools.e2e import E2eTool
 from veyra_proof.tools.fuzz import CargoFuzzTool
 from veyra_proof.tools.geiger import CargoGeigerTool
 from veyra_proof.tools.kani import KaniTool
@@ -28,6 +29,7 @@ ALL_TOOL_CLASSES = [
     ClippyTool,
     CargoTestTool,
     AntiTheaterTool,
+    E2eTool,
     NextestTool,
     LlvmCovTool,
     CargoAuditTool,

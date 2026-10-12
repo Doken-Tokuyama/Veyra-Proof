@@ -353,7 +353,12 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
     results: list[ToolResult] = []
     selected_ids = [t.id for t in tools]
-    req_ids = required_tool_ids(args.profile, workspace=ctx.workspace, selected_ids=selected_ids)
+    req_ids = required_tool_ids(
+        args.profile,
+        workspace=ctx.workspace,
+        selected_ids=selected_ids,
+        config=ctx.config,
+    )
     missing_required: list[str] = []
 
     # Ensure evidence runner is live

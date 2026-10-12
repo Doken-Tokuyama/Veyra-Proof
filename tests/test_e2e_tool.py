@@ -1,0 +1,551 @@
+"""Unit tests for the end-to-end verification tool.
+
+The unit suite mocks the runner everywhere else, and this file follows the same
+rule: what is under test here is the *decision logic* — which observation
+produces which finding, and which situation is a pass, a failure, or no verdict
+at all. Whether a real cargo build works is checked separately by
+``tests/test_e2e_live.py``, which builds the demo fixture for real.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from veyra_proof.config import E2eConfig, E2eScenario, VeyraConfig, load_veyra_config
+from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
+from veyra_proof.platform_info import PlatformInfo
+from veyra_proof.tools.base import AuditContext
+from veyra_proof.tools.e2e import E2eTool, _excerpt
+from veyra_proof.tool_registry import required_tool_ids
+
+EXE = Path("target/release/demo")
+
+
+class FakeRunner:
+    """Serves the canned build output first, then one canned result per scenario."""
+
+    def __init__(
+        self,
+        *,
+        build_stdout: str = "",
+        build_exit: int = 0,
+        build_timed_out: bool = False,
+        build_stderr: str = "",
+        scenarios: dict[tuple[str, ...], CommandResult] | None = None,
+        default: CommandResult | None = None,
+    ) -> None:
+        self.build_stdout = build_stdout
+        self.build_exit = build_exit
+        self.build_timed_out = build_timed_out
+        self.build_stderr = build_stderr
+        self.scenarios = scenarios or {}
+        self.default = default
+        self.calls: list[list[str]] = []
+
+    def run(self, command, *, cwd=None, timeout=None, env=None, input_text=None, **kwargs):
+        self.calls.append(list(command))
+        if command[:2] == ["cargo", "build"]:
+            return CommandResult(
+                command=list(command),
+                cwd=str(cwd),
+                exit_code=self.build_exit,
+                stdout=self.build_stdout,
+                stderr=self.build_stderr,
+                duration_seconds=1.0,
+                timed_out=self.build_timed_out,
+                error="timeout" if self.build_timed_out else None,
+            )
+        key = tuple(command[1:])
+        result = self.scenarios.get(key, self.default)
+        if result is None:
+            result = CommandResult(
+                command=list(command),
+                cwd=str(cwd),
+                exit_code=0,
+                stdout="3\n",
+                stderr="",
+                duration_seconds=0.01,
+            )
+        return result
+
+
+def artifact_line(executable: Path, name: str = "demo") -> str:
+    return json.dumps(
+        {
+            "reason": "compiler-artifact",
+            "target": {"name": name, "kind": ["bin"]},
+            "executable": str(executable),
+        }
+    )
+
+
+def warning_line(lint: str, file: str = "src/lib.rs", line: int = 3) -> str:
+    return json.dumps(
+        {
+            "reason": "compiler-message",
+            "message": {
+                "level": "warning",
+                "message": "field is never read",
+                "code": {"code": lint},
+                "spans": [
+                    {
+                        "file_name": file,
+                        "line_start": line,
+                        "line_end": line,
+                        "is_primary": True,
+                    }
+                ],
+            },
+        }
+    )
+
+
+def _workspace(root: Path, *, has_lockfile: bool = True) -> WorkspaceInfo:
+    return WorkspaceInfo(
+        path=str(root),
+        workspace_root=str(root),
+        packages=[],
+        workspace_members=[],
+        target_directory=str(root / "target"),
+        default_members=[],
+        root_package=None,
+        has_lockfile=has_lockfile,
+        lockfile_path=str(root / "Cargo.lock") if has_lockfile else None,
+        metadata_raw={},
+    )
+
+
+def _platform() -> PlatformInfo:
+    return PlatformInfo(
+        os=PlatformOS.LINUX,
+        os_raw="Linux",
+        architecture="x86_64",
+        architecture_raw="x86_64",
+        python_version="3.12",
+        python_executable="python",
+        cargo_path="cargo",
+    )
+
+
+def make_context(
+    tmp_path: Path,
+    e2e: E2eConfig,
+    runner: FakeRunner,
+    *,
+    has_lockfile: bool = True,
+) -> AuditContext:
+    executable = tmp_path / EXE
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.write_bytes(b"pretend-binary")
+    return AuditContext(
+        workspace=_workspace(tmp_path, has_lockfile=has_lockfile),
+        platform=_platform(),
+        config=VeyraConfig(e2e=e2e),
+        runner=runner,
+        evidence_dir=tmp_path / "evidence",
+        profile="standard",
+        timeout_seconds=60.0,
+    )
+
+
+def scenario(name: str = "happy path", argv: list[str] | None = None, **kwargs) -> E2eScenario:
+    # A scenario that only says "exit 0" is reported as vacuous, so the default
+    # here asserts the output the demo binary really produces.
+    kwargs.setdefault("expect_stdout_regex", r"^3\n?$")
+    return E2eScenario(name=name, argv=argv if argv is not None else ["add", "1", "2"], **kwargs)
+
+
+def rules(result) -> list[str]:
+    return [f.rule for f in result.findings]
+
+
+def test_no_scenarios_is_skipped_and_never_claimed_ok(tmp_path) -> None:
+    """Silence is not evidence: no declared journey means no verdict."""
+    ctx = make_context(tmp_path, E2eConfig(), FakeRunner())
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "SKIPPED"
+    assert result.environment["skip_kind"] == "intentional"
+    assert "not verified" in result.summary
+
+
+def test_declared_scenarios_run_against_the_built_binary_and_pass(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "OK"
+    assert result.exit_code == 0
+    assert result.artifact_hashes  # the binary that produced the behavior is pinned
+    assert runner.calls[0][:2] == ["cargo", "build"]
+    assert runner.calls[1] == [str(tmp_path / EXE), "add", "1", "2"]
+    log = Path(result.stdout_path).read_text(encoding="utf-8")
+    assert "observed_exit=0" in log
+    assert "verdict=PASS" in log
+
+
+def test_build_uses_release_and_locked_when_declared(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()], build_profile="release"), runner)
+
+    E2eTool().run(ctx)
+
+    assert "--release" in runner.calls[0]
+    assert "--locked" in runner.calls[0]
+
+
+def test_build_without_lockfile_does_not_ask_for_one(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(
+        tmp_path, E2eConfig(scenarios=[scenario()]), runner, has_lockfile=False
+    )
+
+    E2eTool().run(ctx)
+
+    assert "--locked" not in runner.calls[0]
+
+
+def test_wrong_exit_code_is_a_failure_that_quotes_what_was_observed(tmp_path) -> None:
+    observed = CommandResult(
+        command=[], cwd="", exit_code=0, stdout="3\n", stderr="", duration_seconds=0.01
+    )
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE) + "\n",
+        scenarios={("add", "1", "2"): observed},
+    )
+    ctx = make_context(
+        tmp_path, E2eConfig(scenarios=[scenario(expect_exit=2)]), runner
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert result.exit_code == 1
+    assert "E2E01" in rules(result)
+    assert "exited 0" in result.findings[0].explanation
+
+
+def test_missing_expected_output_is_a_failure_that_quotes_what_was_observed(tmp_path) -> None:
+    observed = CommandResult(
+        command=[], cwd="", exit_code=0, stdout="4\n", stderr="", duration_seconds=0.01
+    )
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE) + "\n",
+        scenarios={("add", "1", "2"): observed},
+    )
+    ctx = make_context(
+        tmp_path, E2eConfig(scenarios=[scenario(expect_stdout_regex=r"^3$")]), runner
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "E2E02" in rules(result)
+    explanation = result.findings[0].explanation
+    assert "expected stdout to match '^3$'" in explanation
+    assert f"observed {_excerpt('4' + chr(10))!r}" in explanation, (
+        "the finding must quote what was observed"
+    )
+
+
+def test_a_failure_scenario_that_succeeds_is_a_failure(tmp_path) -> None:
+    """Invalid input that exits 0 is exactly the theater this tool exists for."""
+    observed = CommandResult(
+        command=[], cwd="", exit_code=0, stdout="", stderr="", duration_seconds=0.01
+    )
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE) + "\n",
+        scenarios={("divide", "1", "0"): observed},
+    )
+    ctx = make_context(
+        tmp_path,
+        E2eConfig(
+            scenarios=[
+                scenario(
+                    argv=["divide", "1", "0"],
+                    expect_failure=True,
+                    expect_stdout_regex=None,
+                )
+            ]
+        ),
+        runner,
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "E2E01" in rules(result)
+
+
+def test_a_failure_scenario_with_an_explicit_exit_code_is_held_to_it(tmp_path) -> None:
+    observed = CommandResult(
+        command=[], cwd="", exit_code=3, stdout="", stderr="boom\n", duration_seconds=0.01
+    )
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE) + "\n",
+        scenarios={("divide", "1", "0"): observed},
+    )
+    ctx = make_context(
+        tmp_path,
+        E2eConfig(
+            scenarios=[
+                scenario(
+                    argv=["divide", "1", "0"],
+                    expect_failure=True,
+                    expect_exit=2,
+                    expect_stdout_regex=None,
+                    expect_stderr_regex="boom",
+                )
+            ]
+        ),
+        runner,
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "expects exit=2 on failure" in result.findings[0].explanation
+
+
+def test_a_scenario_that_asserts_nothing_is_vacuous_not_passing(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(
+        tmp_path, E2eConfig(scenarios=[scenario(expect_exit=0, expect_stdout_regex=None)]), runner
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "E2E00" in rules(result)
+    assert "would pass for a binary that only starts" in result.findings[0].explanation
+
+
+def test_expected_files_that_were_not_written_are_a_failure(tmp_path) -> None:
+    observed = CommandResult(
+        command=[], cwd="", exit_code=0, stdout="", stderr="", duration_seconds=0.01
+    )
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE) + "\n",
+        scenarios={("write",): observed},
+    )
+    ctx = make_context(
+        tmp_path,
+        E2eConfig(
+            scenarios=[
+                scenario(argv=["write"], expect_files=["out/report.txt"], expect_stdout_regex=None)
+            ]
+        ),
+        runner,
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "it was not created" in " ".join(f.explanation for f in result.findings)
+
+
+def test_expected_files_outside_the_sandbox_are_refused(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(
+        tmp_path,
+        E2eConfig(
+            scenarios=[
+                scenario(argv=["write"], expect_files=["/etc/passwd"], expect_stdout_regex=None)
+            ]
+        ),
+        runner,
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "outside the scenario working directory" in " ".join(
+        f.explanation for f in result.findings
+    )
+
+
+def test_a_failed_build_is_an_error_not_a_pass(tmp_path) -> None:
+    runner = FakeRunner(build_exit=101, build_stderr="error: could not compile")
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "ERROR"
+    assert result.exit_code == 1
+    assert len(runner.calls) == 1  # nothing was executed after the build failed
+
+
+def test_a_timeout_is_inconclusive_never_success_or_failure(tmp_path) -> None:
+    hung = CommandResult(
+        command=[],
+        cwd="",
+        exit_code=None,
+        stdout="",
+        stderr="",
+        duration_seconds=60.0,
+        timed_out=True,
+        error="timeout after 60s",
+    )
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE) + "\n",
+        scenarios={("add", "1", "2"): hung},
+    )
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "INCONCLUSIVE"
+    assert result.findings == []
+    assert "timed out" in result.summary
+
+
+def test_a_workspace_that_builds_no_binary_is_inconclusive(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=json.dumps({"reason": "compiler-artifact", "target": {"name": "lib", "kind": ["lib"]}, "executable": None}) + "\n")
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "INCONCLUSIVE"
+    assert "no binary targets" in result.summary
+    assert len(runner.calls) == 1
+
+
+def test_declared_binaries_that_were_not_built_are_a_finding(tmp_path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE, name="other") + "\n")
+    ctx = make_context(
+        tmp_path, E2eConfig(scenarios=[scenario()], binaries=["demo"]), runner
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "not produced by the build" in result.summary
+
+
+def test_dead_code_is_informational_and_never_blocks_the_verdict(tmp_path) -> None:
+    stdout = artifact_line(tmp_path / EXE) + "\n" + warning_line("dead_code") + "\n"
+    runner = FakeRunner(build_stdout=stdout)
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "OK"
+    assert "E2E03" in rules(result)
+    assert all(f.severity == "info" for f in result.findings if f.rule == "E2E03")
+
+
+def test_dependency_warnings_are_not_attributed_to_the_workspace(tmp_path) -> None:
+    stdout = artifact_line(tmp_path / EXE) + "\n" + warning_line(
+        "dead_code", file="/rustc/registry/src/serde/lib.rs"
+    ) + "\n"
+    runner = FakeRunner(build_stdout=stdout)
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert rules(result) == []
+
+
+def test_invalid_configuration_is_reported_instead_of_ignored(tmp_path) -> None:
+    (tmp_path / "veyra.toml").write_text(
+        "\n".join(
+            [
+                "[[e2e.scenarios]]",
+                'name = "broken"',
+                "argv = [\"run\"]",
+                "expect_stdout_regex = '('",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_veyra_config(tmp_path)
+
+    assert config.e2e.errors, "an uncompilable regex must not be silently dropped"
+    # The scenario itself is kept: its other expectations still run, and the
+    # invalid pattern surfaces as a finding instead of vanishing.
+    assert [s.name for s in config.e2e.scenarios] == ["broken"]
+
+
+def test_invalid_configuration_rejects_the_audit(tmp_path) -> None:
+    (tmp_path / "veyra.toml").write_text(
+        '[[e2e.scenarios]]\nname = "broken"\nargv = ["run"]\nexpect_stdout_regex = "("\n',
+        encoding="utf-8",
+    )
+    config = load_veyra_config(tmp_path)
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(tmp_path, config.e2e, runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "E2ECFG" in rules(result)
+
+
+def test_expect_failure_without_an_exit_code_is_not_a_contradiction(tmp_path) -> None:
+    """Regression: `expect_failure = true` alone means "any non-zero exit"."""
+    (tmp_path / "veyra.toml").write_text(
+        "[[e2e.scenarios]]\n"
+        'name = "failure"\n'
+        'argv = ["divide", "1", "0"]\n'
+        "expect_failure = true\n"
+        "expect_stderr_regex = 'division by zero'\n",
+        encoding="utf-8",
+    )
+
+    config = load_veyra_config(tmp_path)
+
+    assert config.e2e.errors == []
+    assert config.e2e.scenarios[0].expect_exit is None
+
+
+def test_explicit_zero_exit_with_expect_failure_is_rejected(tmp_path) -> None:
+    (tmp_path / "veyra.toml").write_text(
+        "[[e2e.scenarios]]\n"
+        'name = "contradiction"\n'
+        'argv = ["run"]\n'
+        "expect_failure = true\n"
+        "expect_exit = 0\n",
+        encoding="utf-8",
+    )
+
+    config = load_veyra_config(tmp_path)
+
+    assert any("contradicts" in error for error in config.e2e.errors)
+
+
+def test_duplicate_scenario_names_are_rejected(tmp_path) -> None:
+    (tmp_path / "veyra.toml").write_text(
+        "[[e2e.scenarios]]\n"
+        'name = "same"\n'
+        'argv = ["a"]\n'
+        "\n"
+        "[[e2e.scenarios]]\n"
+        'name = "same"\n'
+        'argv = ["b"]\n',
+        encoding="utf-8",
+    )
+
+    config = load_veyra_config(tmp_path)
+
+    assert any("duplicate" in error for error in config.e2e.errors)
+
+
+def test_required_tool_ids_demands_e2e_only_when_journeys_are_declared() -> None:
+    assert "veyra-e2e" not in required_tool_ids("standard", config=VeyraConfig())
+
+    # Config-gated in every profile: it demands execution only when the project
+    # declared the journeys it claims to verify.
+    configured = VeyraConfig(e2e=E2eConfig(scenarios=[scenario()]))
+    for profile in ("quick", "standard", "hardened"):
+        assert "veyra-e2e" in required_tool_ids(profile, config=configured)
+
+    # Never required in a profile that does not run it, or when excluded.
+    assert (
+        "veyra-e2e"
+        not in required_tool_ids("quick", config=configured, selected_ids=["clippy"])
+    )

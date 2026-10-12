@@ -169,6 +169,96 @@ def test_empty_core_artifact_is_caught(checker, tmp_path) -> None:
     assert problems == ["report.md is empty"]
 
 
+def _e2e_evidence(tmp_path: Path, *, log_text: str, declared_scenarios: int) -> tuple[Path, Path]:
+    """Evidence for the end-to-end tool plus the target's veyra.toml."""
+    target = tmp_path / "target-crate"
+    (target / ".veyra" / "evidence" / "20260101T000000Z" / "tools" / "veyra-e2e").mkdir(
+        parents=True
+    )
+    if declared_scenarios:
+        target.mkdir(parents=True, exist_ok=True)
+        declarations = "\n".join(
+            f'[[e2e.scenarios]]\nname = "s{i}"\nargv = ["run"]\n'
+            for i in range(declared_scenarios)
+        )
+        (target / "veyra.toml").write_text(declarations, encoding="utf-8")
+
+    directory = target / ".veyra" / "evidence" / "20260101T000000Z"
+    tools = directory / "tools" / "veyra-e2e"
+    log = tools / "stdout.log"
+    log.write_text(log_text, encoding="utf-8")
+    record = {
+        "tool_id": "veyra-e2e",
+        "status": "OK",
+        "exit_code": 0,
+        "environment": {"evidence_kind": "e2e"},
+        "stdout_path": str(log),
+    }
+    (tools / "result.json").write_text(json.dumps(record), encoding="utf-8")
+    report = {
+        "decision": {"decision": "ACCEPTED", "exit_code": 0},
+        "required_tool_ids": ["veyra-e2e"],
+        "results": [
+            {
+                "tool_id": "veyra-e2e",
+                "status": "OK",
+                "exit_code": 0,
+                "stdout_path": str(log),
+            }
+        ],
+    }
+    (directory / "report.json").write_text(json.dumps(report), encoding="utf-8")
+    (directory / "report.md").write_text("# Veyra Proof Report\n", encoding="utf-8")
+    (directory / "manifest.json").write_text(json.dumps({"version": "0.1.0"}), encoding="utf-8")
+    return directory, target
+
+
+def test_an_end_to_end_run_that_observed_every_scenario_passes(checker, tmp_path) -> None:
+    log = (
+        "binary: /tmp/demo (sha256=abc)\n"
+        "SCENARIO name='a' argv=['add', '1', '2'] observed_exit=0 verdict=PASS\n"
+        "SCENARIO name='b' argv=['divide', '1', '0'] observed_exit=2 verdict=PASS\n"
+    )
+    directory, target = _e2e_evidence(tmp_path, log_text=log, declared_scenarios=2)
+
+    problems, confirmed = checker.verify(directory, 0, target=target)
+
+    assert problems == []
+    assert confirmed == ["veyra-e2e OK exit 0"]
+
+
+def test_an_end_to_end_ok_with_no_observed_scenario_is_caught(checker, tmp_path) -> None:
+    """The check this guards: a green claim with nothing observed behind it."""
+    directory, target = _e2e_evidence(
+        tmp_path, log_text="binary: /tmp/demo (sha256=abc)\n", declared_scenarios=1
+    )
+
+    problems, _ = checker.verify(directory, 0, target=target)
+
+    assert any("without a single observed scenario" in p for p in problems)
+
+
+def test_an_end_to_end_run_that_skipped_a_declared_scenario_is_caught(checker, tmp_path) -> None:
+    log = "SCENARIO name='a' argv=['add'] observed_exit=0 verdict=PASS\n"
+    directory, target = _e2e_evidence(tmp_path, log_text=log, declared_scenarios=3)
+
+    problems, _ = checker.verify(directory, 0, target=target)
+
+    assert any("observed 1 scenario(s) but veyra.toml declares 3" in p for p in problems)
+
+
+def test_an_end_to_end_scenario_line_without_an_observed_exit_is_caught(checker, tmp_path) -> None:
+    directory, target = _e2e_evidence(
+        tmp_path,
+        log_text="SCENARIO name='a' argv=['add'] verdict=PASS\n",
+        declared_scenarios=1,
+    )
+
+    problems, _ = checker.verify(directory, 0, target=target)
+
+    assert any("records no observed exit code" in p for p in problems)
+
+
 def test_a_report_with_no_results_is_caught(checker, tmp_path) -> None:
     directory = _evidence(tmp_path)
     report = json.loads((directory / "report.json").read_text(encoding="utf-8"))

@@ -111,9 +111,9 @@ target/.veyra/evidence/<UTC_TIMESTAMP>/
 
 | Profile | Intent |
 |---|---|
-| `quick` | fmt, check, clippy `-D warnings`, test, `cargo audit`, anti-theater heuristics |
-| `standard` | quick + nextest, coverage, `cargo deny`, `geiger`, `machete`, `semver-checks` |
-| `hardened` | standard + miri, mutants, fuzz, kani, vet, reproducible-build attempt |
+| `quick` | fmt, check, clippy `-D warnings`, test, `cargo audit`, anti-theater heuristics, end-to-end behavior (if scenarios declared) |
+| `standard` | quick + nextest, coverage, `cargo deny`, `geiger`, `machete`, `semver-checks`, end-to-end behavior (if scenarios declared) |
+| `hardened` | standard + miri, mutants, fuzz, kani, vet, reproducible-build attempt, end-to-end behavior (if scenarios declared) |
 
 ### Exit codes
 

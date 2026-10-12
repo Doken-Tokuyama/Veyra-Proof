@@ -104,9 +104,9 @@ Works the same on **Windows**, **macOS**, and **Linux** (use your Python launche
 
 | Profile | Intent |
 |---------|--------|
-| `quick` | fmt, check, clippy `-D warnings`, test, audit (if lockfile), anti-theater |
-| `standard` | quick + nextest, llvm-cov, deny, geiger, machete, dylint (if configured), semver-checks (libs), full anti-theater |
-| `hardened` | standard + miri, mutants (configured paths only), fuzz (configured targets), kani (harnesses), vet (existing config), check-external-types, reproducible-build attempt |
+| `quick` | fmt, check, clippy `-D warnings`, test, audit (if lockfile), anti-theater, **veyra-e2e** (if scenarios declared) |
+| `standard` | quick + nextest, llvm-cov, deny, geiger, machete, dylint (if configured), semver-checks (libs), full anti-theater, **veyra-e2e** (if scenarios declared) |
+| `hardened` | standard + miri, mutants (configured paths only), fuzz (configured targets), kani (harnesses), vet (existing config), check-external-types, reproducible-build attempt, **veyra-e2e** (if scenarios declared) |
 
 Heavy tools are **SKIPPED** with an explicit reason when configuration/targets are missing.
 
@@ -145,7 +145,36 @@ Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` containing `report.md`, `report
 
 ## Optional `veyra.toml`
 
-Not created automatically. See the project specification for the full schema (`critical_paths`, policy flags, fuzz targets, mutants paths, etc.).
+Not created automatically. See the project specification for the full schema (`critical_paths`, policy flags, fuzz targets, mutants paths, `[e2e]` scenarios, etc.).
+
+## End-to-end behavior (`veyra-e2e`)
+
+Static checks and unit tests cannot tell a wired feature from a placeholder: both compile, and both pass weak tests. `veyra-e2e` builds the workspace with the real toolchain and **drives the binary cargo produced** through the journeys declared in `veyra.toml`, comparing exit code, stdout, stderr and written files against what was declared.
+
+```toml
+[e2e]
+build_profile = "release"        # the profile you actually ship
+
+[[e2e.scenarios]]
+name = "add sums two integers"
+argv = ["add", "1", "2"]
+expect_exit = 0
+expect_stdout_regex = '^3\r?\n?$'
+
+[[e2e.scenarios]]
+name = "divide reports a zero divisor"
+argv = ["divide", "1", "0"]
+expect_failure = true            # any non-zero exit; set expect_exit for an exact one
+expect_stderr_regex = 'division by zero'
+```
+
+- **No scenarios declared → `SKIPPED`, never `OK`.** No declaration means no verification.
+- A scenario that asserts nothing observable (exit 0 and nothing else) is reported as **vacuous** (`E2E00`) instead of passing.
+- Every failure quotes what was observed; a timeout is `INCONCLUSIVE`, never a pass and never a failure.
+- The binary's sha256, per-scenario exit codes and captured output are written to `tools/veyra-e2e/stdout.log`.
+- Runs in `standard` and `hardened` (any profile via `--include veyra-e2e`), and becomes **required** exactly when scenarios are declared.
+
+The demo fixture ships a real CLI (`tests/fixtures/demo_crate/src/main.rs`) wired to its library, with five scenarios covering the happy path, two failure paths, invalid input and `--help`.
 
 ## Agent Skill
 

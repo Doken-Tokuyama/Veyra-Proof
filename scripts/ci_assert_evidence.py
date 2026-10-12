@@ -50,11 +50,26 @@ KNOWN_STATUSES = {
 # prerequisites and 3 an internal error, and neither is a usable run.
 VERDICT_EXITS = {0, 1}
 
+# The end-to-end tool claims behavior, not merely a successful run, so its log
+# has to carry the values each scenario observed. "OK" with nothing observed
+# would be the exact fake confidence this project refuses to manufacture.
+E2E_TOOL_ID = "veyra-e2e"
+
 CORE_ARTIFACTS = ("report.json", "report.md", "manifest.json")
 
 
 def evidence_root(target: Path) -> Path:
     return target / ".veyra" / "evidence"
+
+
+def declared_e2e_scenarios(target: Path | None) -> int | None:
+    """Scenarios declared in veyra.toml, counted without a TOML dependency."""
+    if target is None:
+        return None
+    path = target / "veyra.toml"
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8").count("[[e2e.scenarios]]")
 
 
 def newest_evidence(target: Path, before: set[Path]) -> Path | None:
@@ -87,7 +102,9 @@ def run_audit(target: Path, profile: str) -> subprocess.CompletedProcess[str]:
 
 
 def verify(
-    directory: Path, process_exit_code: int | None = None
+    directory: Path,
+    process_exit_code: int | None = None,
+    target: Path | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return (problems, confirmed) for an evidence directory.
 
@@ -131,6 +148,7 @@ def verify(
             elif not log or not Path(log).is_file():
                 fault = "reported OK without a log on disk"
 
+        own = None
         if fault is None:
             record = directory / "tools" / tool_id / "result.json"
             if not record.is_file():
@@ -141,6 +159,29 @@ def verify(
                     fault = (
                         f"summary claims {status}/{code}, its own record says "
                         f"{own.get('status')}/{own.get('exit_code')}"
+                    )
+
+        # A tool that verifies end-to-end behavior has to show what it observed.
+        if (
+            fault is None
+            and own is not None
+            and tool_id == E2E_TOOL_ID
+            and status == "OK"
+            and (own.get("environment") or {}).get("evidence_kind") == "e2e"
+        ):
+            log = own.get("stdout_path")
+            text = Path(log).read_text(encoding="utf-8") if log and Path(log).is_file() else ""
+            observed = [line for line in text.splitlines() if line.startswith("SCENARIO ")]
+            if not observed:
+                fault = "reported OK without a single observed scenario in its log"
+            elif any("observed_exit=" not in line for line in observed):
+                fault = "reported OK with a scenario line that records no observed exit code"
+            else:
+                declared = declared_e2e_scenarios(target)
+                if declared is not None and len(observed) != declared:
+                    fault = (
+                        f"observed {len(observed)} scenario(s) but veyra.toml declares "
+                        f"{declared}"
                     )
 
         if fault:
@@ -197,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"  evidence  {directory}")
 
-    problems, confirmed = verify(directory, completed.returncode)
+    problems, confirmed = verify(directory, completed.returncode, target=target)
     for line in confirmed:
         print(f"  confirmed  {line}")
 

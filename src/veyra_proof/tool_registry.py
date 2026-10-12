@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from veyra_proof.config import VeyraConfig
 from veyra_proof.models import PlatformOS, WorkspaceInfo
 from veyra_proof.tools import ALL_TOOL_CLASSES
 from veyra_proof.tools.base import Tool
@@ -18,6 +19,7 @@ CORE_REQUIRED: dict[str, set[str]] = {
 # May be SKIPPED with an explicit reason without making the audit INCONCLUSIVE.
 CONFIG_GATED: set[str] = {
     "audit",  # needs Cargo.lock
+    "veyra-e2e",  # needs [[e2e.scenarios]] declared
     "dylint",
     "semver-checks",
     "miri",
@@ -48,6 +50,7 @@ PROFILE_ORDER = {
         "cargo-test",
         "audit",
         "veyra-anti-theater",
+        "veyra-e2e",
     ],
     "standard": [
         "rustfmt",
@@ -63,6 +66,7 @@ PROFILE_ORDER = {
         "machete",
         "dylint",
         "semver-checks",
+        "veyra-e2e",
     ],
     "hardened": [
         "rustfmt",
@@ -84,6 +88,7 @@ PROFILE_ORDER = {
         "kani",
         "vet",
         "check-external-types",
+        "veyra-e2e",
         # reproducible-build is opt-in only (--include / tools.enable): full target
         # tree hashing is not a reliable bit-reproducibility oracle by default.
     ],
@@ -103,6 +108,7 @@ def required_tool_ids(
     *,
     workspace: WorkspaceInfo | None = None,
     selected_ids: Iterable[str] | None = None,
+    config: VeyraConfig | None = None,
 ) -> list[str]:
     """Tools that must run (not intentional-skip) for ACCEPTED."""
     selected = set(selected_ids or [])
@@ -113,6 +119,14 @@ def required_tool_ids(
     if workspace is not None and workspace.has_lockfile and "audit" in (selected or PROFILE_ORDER.get(profile, [])):
         if not selected or "audit" in selected:
             required.add("audit")
+    # End-to-end verification becomes a requirement exactly when the project
+    # declared scenarios: a declared journey that is skipped is not evidence.
+    # The same profile/selection guard as `audit` keeps a tool from being
+    # required in a profile that never runs it.
+    if config is not None and config.e2e.scenarios:
+        in_profile = "veyra-e2e" in (selected or PROFILE_ORDER.get(profile, []))
+        if in_profile and (not selected or "veyra-e2e" in selected):
+            required.add("veyra-e2e")
     return sorted(required)
 
 

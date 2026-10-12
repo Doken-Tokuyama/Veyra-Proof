@@ -27,3 +27,27 @@ critical_paths = []
 
 # [[mutants]]
 # paths = ["src/critical"]
+
+# End-to-end behavior: veyra builds the workspace and runs the binary cargo
+# produced through each declared journey, comparing exit code, stdout, stderr
+# and written files with what is declared here. A scenario that asserts nothing
+# observable is reported as vacuous, and no scenarios at all means SKIPPED
+# rather than a pass.
+#
+# [e2e]
+# build_profile = "release"     # the profile you actually ship
+# features = []
+# binaries = []                 # defaults to the first built bin target
+# timeout_seconds = 60
+#
+# [[e2e.scenarios]]
+# name = "add sums two integers"
+# argv = ["add", "1", "2"]
+# expect_exit = 0
+# expect_stdout_regex = '^3\r?\n?$'
+#
+# [[e2e.scenarios]]
+# name = "divide reports a zero divisor"
+# argv = ["divide", "1", "0"]
+# expect_failure = true
+# expect_stderr_regex = 'division by zero'
