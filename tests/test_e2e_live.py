@@ -110,8 +110,11 @@ def test_the_demo_binary_is_verified_end_to_end(fixture_copy: Path) -> None:
 
     # The binary that produced this behavior is pinned by hash, and the hash
     # still matches the file cargo built.
+    # Split by what the key names, not by its separator: a Windows path uses
+    # backslashes and a separator test would find no binary at all there.
+    logs = {"stdout.log", "stderr.log", "skip.txt"}
     hashes = entry["artifact_hashes"]
-    binary_keys = [key for key in hashes if "/" in key]
+    binary_keys = [key for key in hashes if Path(key).name not in logs]
     assert len(binary_keys) == 1, f"expected exactly one pinned binary, got {sorted(hashes)}"
     binary = Path(binary_keys[0])
     assert binary.is_file()
@@ -119,7 +122,7 @@ def test_the_demo_binary_is_verified_end_to_end(fixture_copy: Path) -> None:
 
     # The logs the verdict rests on are pinned too, so neither can be swapped
     # for a friendlier one after the run.
-    for name in ("stdout.log", "stderr.log"):
+    for name in sorted(logs - {"skip.txt"}):
         path = evidence / "tools" / "veyra-e2e" / name
         assert hashes[name] == hashlib.sha256(path.read_bytes()).hexdigest()
 

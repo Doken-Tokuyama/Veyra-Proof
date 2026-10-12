@@ -282,6 +282,20 @@ def test_an_end_to_end_scenario_line_without_an_observed_exit_is_caught(checker,
     assert any("records no observed exit code" in p for p in problems)
 
 
+def test_a_path_style_key_is_read_as_a_path_not_as_a_log_name(checker, tmp_path) -> None:
+    """A pinned binary is named by the path cargo produced — backslashes on
+    Windows — so it must not be looked for inside the tool's evidence
+    directory. Whether the path resolves depends on the host that reads it, but
+    it can never resolve to a log the tool wrote next to itself."""
+    directory = tmp_path / "evidence"
+    tool_dir = directory / "tools" / "veyra-e2e"
+
+    stray = checker.artifact_path(directory, "veyra-e2e", "C:\\build\\demo_crate.exe")
+    assert tool_dir not in stray.parents
+
+    assert checker.artifact_path(directory, "veyra-e2e", "stdout.log") == tool_dir / "stdout.log"
+
+
 def test_an_edited_log_is_caught_by_its_recorded_digest(checker, tmp_path) -> None:
     """The point of pinning: a log rewritten after the run cannot pass as the
     evidence the verdict was based on."""
