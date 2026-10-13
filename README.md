@@ -1,6 +1,7 @@
 # Veyra Proof
 
 [![CI](https://github.com/Doken-Tokuyama/Veyra-Proof/actions/workflows/ci.yml/badge.svg)](https://github.com/Doken-Tokuyama/Veyra-Proof/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/veyra-proof.svg)](https://pypi.org/project/veyra-proof/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
