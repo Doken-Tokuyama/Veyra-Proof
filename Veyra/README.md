@@ -19,7 +19,7 @@ something was not checked, the report says so instead of implying success.
 ## Install
 
 ```bash
-git clone https://github.com/ExyonQ/Veyra-Proof
+git clone https://github.com/Doken-Tokuyama/Veyra-Proof
 cd Veyra-Proof/Veyra
 python3 install.py
 ```
@@ -67,7 +67,7 @@ Restart your agent afterwards so it reloads the skill list.
 The skill drives the `veyra` CLI. The installer can set it up in the same pass:
 
 ```bash
-python3 install.py --with-cli https://github.com/ExyonQ/Veyra-Proof
+python3 install.py --with-cli https://github.com/Doken-Tokuyama/Veyra-Proof
 ```
 
 That clones the source to `~/.veyra`, creates a virtualenv, and prints the line

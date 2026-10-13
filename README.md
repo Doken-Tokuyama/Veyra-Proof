@@ -1,6 +1,6 @@
 # Veyra Proof
 
-[![CI](https://github.com/ExyonQ/Veyra-Proof/actions/workflows/ci.yml/badge.svg)](https://github.com/ExyonQ/Veyra-Proof/actions/workflows/ci.yml)
+[![CI](https://github.com/Doken-Tokuyama/Veyra-Proof/actions/workflows/ci.yml/badge.svg)](https://github.com/Doken-Tokuyama/Veyra-Proof/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -40,7 +40,7 @@ If a tool is missing it says `MISSING`. If it timed out it says `SKIPPED`. `OK` 
 ## Install (local)
 
 ```bash
-git clone https://github.com/ExyonQ/Veyra-Proof
+git clone https://github.com/Doken-Tokuyama/Veyra-Proof
 cd Veyra-Proof
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"

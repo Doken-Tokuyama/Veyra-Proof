@@ -52,9 +52,9 @@ dev = [
 veyra = "veyra_proof.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/ExyonQ/Veyra-Proof"
-Source = "https://github.com/ExyonQ/Veyra-Proof"
-Issues = "https://github.com/ExyonQ/Veyra-Proof/issues"
+Homepage = "https://github.com/Doken-Tokuyama/Veyra-Proof"
+Source = "https://github.com/Doken-Tokuyama/Veyra-Proof"
+Issues = "https://github.com/Doken-Tokuyama/Veyra-Proof/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
