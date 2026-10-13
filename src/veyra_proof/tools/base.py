@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from veyra_proof.command_runner import CommandRunner
+from veyra_proof.command_runner import CommandRunner, apply_lock_policy
 from veyra_proof.config import VeyraConfig
 from veyra_proof.hashing import sha256_file
 from veyra_proof.models import (
@@ -88,6 +88,21 @@ class Tool(ABC):
     def planned_commands(self, context: AuditContext) -> list[list[str]]:
         """Exact argv lists that ``run`` would execute (no side effects)."""
         return []
+
+    def cargo_command(self, context: AuditContext, command: list[str]) -> list[str]:
+        """The argv this tool will actually run, after the lockfile policy.
+
+        Tools route every cargo invocation through here so that three things
+        stay identical: the preview printed by ``plan``, the argv executed, and
+        the command recorded in the evidence. A tool that skipped this would run
+        something other than what its report claims, which is the exact failure
+        this project refuses to ship.
+        """
+        return apply_lock_policy(
+            command,
+            cwd=context.root,
+            allow_update=context.update_lockfile,
+        )
 
     @abstractmethod
     def run(self, context: AuditContext) -> ToolResult:
@@ -238,6 +253,61 @@ CLIPPY_MSG_RE = re.compile(
 TEST_FAIL_RE = re.compile(r"^test (?P<name>.+) \.\.\. FAILED$", re.MULTILINE)
 TEST_IGN_RE = re.compile(r"^test (?P<name>.+) \.\.\. ignored$", re.MULTILINE)
 RUSTC_ERROR_RE = re.compile(r"^error(\[E\d+\])?:", re.MULTILINE)
+RUSTC_ERROR_HEAD_RE = re.compile(r"^error(\[E\d+\])?:", re.MULTILINE)
+
+# cargo refuses to resolve when the lockfile is stale and --locked was passed.
+# The wording has changed across cargo releases ("the lock file ... needs to be
+# updated but --locked was passed" vs "cannot update the lock file ... because
+# --locked was passed"), so both are matched rather than one guess.
+STALE_LOCK_RE = re.compile(
+    r"lock file[^\n]*?(?:needs to be updated but|cannot be updated[^\n]*?because)\s*"
+    r"--(?:locked|frozen) was passed"
+    r"|cannot update the lock file[^\n]*because\s*--(?:locked|frozen) was passed",
+    re.IGNORECASE,
+)
+STALE_LOCK_MESSAGE = (
+    "Cargo.lock is out of date with Cargo.toml and Veyra will not rewrite it. "
+    "Resolve it yourself (`cargo generate-lockfile` / `cargo update`) or re-run with "
+    "--update-lockfile to authorize the change."
+)
+
+# `#![feature(..)]` is only accepted on nightly. Benchmarks and examples often
+# use it (bench = criterion, test = libtest), so `--all-targets` fails on a
+# perfectly healthy stable project.
+NIGHTLY_GATE_RE = re.compile(
+    r"^error\[E0554\]: `#!\[feature\][^\n]*\n(?:[^\n]*\n)*?[^\n]*-->\s*(?P<file>[^\r\n:]+):(?P<line>\d+):(?P<col>\d+)",
+    re.MULTILINE,
+)
+NIGHTLY_GATE_SUMMARY_RE = re.compile(r"^error: could not compile", re.MULTILINE)
+
+
+def stale_lockfile(text: str) -> bool:
+    """True when cargo refused to build because --locked found an outdated lock."""
+    return bool(STALE_LOCK_RE.search(text))
+
+
+def nightly_only_targets(text: str) -> list[str]:
+    """Files whose only compile error is a nightly-only `#![feature]` attribute.
+
+    An empty result means the failure is something else entirely. A non-empty
+    result means `--all-targets` cannot work on this toolchain, and the caller
+    has to say so instead of reporting a wall of unrelated errors.
+    """
+    hits = {m.group("file").replace("\\", "/") for m in NIGHTLY_GATE_RE.finditer(text)}
+    if not hits:
+        return []
+    for line in text.splitlines():
+        head = RUSTC_ERROR_HEAD_RE.match(line)
+        if head is None:
+            continue
+        code = head.group(1)
+        if code == "[E0554]" or code is None:
+            # A bare `error:` is cargo's own summary of the failures above it.
+            if code is None and not NIGHTLY_GATE_SUMMARY_RE.match(line):
+                return []
+            continue
+        return []
+    return sorted(hits)
 
 
 def parse_clippy_output(text: str) -> list[Finding]:
@@ -293,18 +363,21 @@ def parse_test_failures(text: str) -> list[Finding]:
     return findings
 
 
-def parse_ignored_tests(text: str) -> list[Finding]:
+def parse_ignored_tests(text: str, *, severity: Severity = "info") -> list[Finding]:
     findings: list[Finding] = []
     for m in TEST_IGN_RE.finditer(text):
         findings.append(
             Finding(
                 rule="ignored-test",
-                severity="error",
+                severity=severity,
                 confidence="high",
                 file=None,
                 line=None,
                 excerpt=m.group("name"),
-                explanation=f"Ignored test observed: {m.group('name')} (policy.fail_on_ignored_tests=true).",
+                explanation=(
+                    f"Ignored test observed: {m.group('name')} "
+                    f"(policy.fail_on_ignored_tests={'true' if severity == 'error' else 'false'})."
+                ),
                 recommendation="Un-ignore the test or document an approved exception.",
             )
         )
@@ -324,15 +397,30 @@ def classify_from_command(
         return "INCONCLUSIVE", "warning", "Tool timed out; result is inconclusive."
     if exit_code is None:
         return "ERROR", "error", error or "Command did not produce an exit code."
+    combined = f"{stdout}\n{stderr}"
+    if stale_lockfile(combined):
+        # Checked before findings on purpose: cargo's refusal is printed as an
+        # `error:` line, so a parser would otherwise turn it into a lint or a
+        # compile finding and blame the project for a lockfile it never touched.
+        # Not the project's fault and not a pass either: the lockfile cannot be
+        # checked against the manifest until somebody decides to update it.
+        return "INCONCLUSIVE", "warning", STALE_LOCK_MESSAGE
     if findings:
         max_sev = max(
             (f.severity for f in findings),
             key=lambda s: {"info": 0, "warning": 1, "error": 2, "blocker": 3}[s],
         )
+        if max_sev == "info":
+            # Noted, not blocking. Saying "N finding(s) reported" alone reads as
+            # a problem and hides that none of them can fail a build.
+            return (
+                "FINDINGS",
+                "info",
+                f"{len(findings)} informational finding(s); none blocking",
+            )
         return "FINDINGS", max_sev, f"{len(findings)} finding(s) reported."
     if exit_code == 0:
         return "OK", "info", "Completed with exit code 0 and no parsed findings."
-    combined = f"{stdout}\n{stderr}"
     if RUSTC_ERROR_RE.search(combined) or "error:" in combined.lower():
         return "ERROR", "error", f"Non-zero exit code {exit_code}; see logs."
     return (

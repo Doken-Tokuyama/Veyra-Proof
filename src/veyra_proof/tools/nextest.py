@@ -34,11 +34,11 @@ class NextestTool(Tool):
 
 
     def planned_commands(self, context: AuditContext):
-        return [["cargo", "nextest", "run", "--workspace"]]
+        return [self.cargo_command(context, ["cargo", "nextest", "run", "--workspace"])]
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
-        cmd = ["cargo", "nextest", "run", "--workspace"]
+        cmd = self.cargo_command(context, ["cargo", "nextest", "run", "--workspace"])
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
         text = result.stdout + "\n" + result.stderr

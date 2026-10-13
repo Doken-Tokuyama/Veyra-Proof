@@ -16,9 +16,20 @@ If a tool is missing it says `MISSING`. If it timed out it says `SKIPPED`. `OK` 
 
 - This does **not** prove total correctness or absence of vulnerabilities.
 - Anti-theater heuristics can produce false positives; they never declare "fake code confirmed."
+- **Heuristics also do not see a placeholder that was written to look finished.** Real
+  types, a doc comment citing a business rule, a plausible arithmetic body and tests that
+  assert whatever the code currently does will pass `quick` with exit 0 — verified, with
+  the crate in `tests/`, not as a guess. Nothing regex-shaped can separate that from real
+  code. `veyra-e2e` is the layer that catches it, and only when the journeys are declared
+  in `veyra.toml`. That is the single highest-value thing to wire up, and it is manual by
+  design: inventing journeys nobody declared would produce a green audit for behaviour
+  nobody checked.
 - A fuzz run without crashes is **not** a security proof.
 - Miri/Kani cover limited paths and properties.
 - Tool availability varies by OS, architecture, toolchain, and project configuration.
+- Diagnostic parsing is line-based. A tool whose failure message looks like another
+  tool's finding can be mis-attributed, which is why a stale lockfile is classified
+  before any output is parsed.
 
 ## Requirements
 
@@ -102,27 +113,90 @@ Works the same on **Windows**, **macOS**, and **Linux** (use your Python launche
 
 ## Profiles
 
+Tool ids are the ones `list-tools` and `--include/--exclude` use.
+
 | Profile | Intent |
 |---------|--------|
-| `quick` | fmt, check, clippy `-D warnings`, test, audit (if lockfile), anti-theater, **veyra-e2e** (if scenarios declared) |
-| `standard` | quick + nextest, llvm-cov, deny, geiger, machete, dylint (if configured), semver-checks (libs), full anti-theater, **veyra-e2e** (if scenarios declared) |
-| `hardened` | standard + miri, mutants (configured paths only), fuzz (configured targets), kani (harnesses), vet (existing config), check-external-types, reproducible-build attempt, **veyra-e2e** (if scenarios declared) |
+| `quick` | rustfmt, cargo-check, clippy `-D warnings`, cargo-test, audit, veyra-anti-theater, **veyra-e2e** (if scenarios declared) |
+| `standard` | quick + nextest, llvm-cov, deny, geiger, machete, dylint (if configured), semver-checks (libs), **veyra-e2e** (if scenarios declared) |
+| `hardened` | standard + miri, mutants (configured paths only), fuzz (configured targets), kani (harnesses), vet (existing config), check-external-types, reproducible-build, **veyra-e2e** (if scenarios declared) |
 
 Heavy tools are **SKIPPED** with an explicit reason when configuration/targets are missing.
+
+`reproducible-build` runs two clean builds into throwaway target directories and compares
+the final artifacts. It is the most expensive check in `hardened`; use
+`--exclude reproducible-build` when that cost is not wanted. Differing hashes are
+reported as `INCONCLUSIVE` with both digests, never as a pass.
+
+That finding is informational by default: MSVC/PE output is routinely not
+bit-reproducible, so a default that rejects would be flagging a platform rather
+than a defect. Both digests stay pinned in the evidence either way. Set
+`policy.require_reproducible_build = true` to make bit-identical builds a hard
+requirement for your project.
+
+## Where the time goes
+
+Every tool records how long it took, and `report.json` carries a `timing` block plus a
+`## Time` table in `report.md`: per-tool seconds, the total, the wall clock and the
+difference between them. This matters because the cost is usually the project's own
+toolchain, not the audit — auditing an unmodified `rust-lang/regex` takes ~440s of which
+~415s is its `cargo test --workspace` suite. Veyra does not cache builds across runs
+(shared state that can go stale is how a green audit stops meaning anything) and does not
+skip checks to go faster; it makes the bill itemised instead.
+
+## Nightly-only targets
+
+`cargo check` and `cargo clippy` first run with `--all-targets`. A benchmark or example
+that uses `#![feature(...)]` cannot build on stable, and one such file used to fail the
+whole audit with a wall of unrelated errors. When the *only* failures are nightly feature
+gates, Veyra retries without benches and examples and reports **INCONCLUSIVE**, naming
+every file it could not verify. That verdict never becomes `OK`, and the log keeps both
+attempts. To verify those targets, run on a nightly toolchain.
 
 ## Safety defaults
 
 | Action | Default |
 |--------|---------|
 | Modify `Cargo.toml` | **Forbidden** |
+| Rewrite `Cargo.lock` during a run | **Forbidden** (cargo runs with `--locked`) |
 | Run `cargo update` | **Forbidden** (needs `--update-lockfile`) |
 | Install tools | **Forbidden** (needs `--install-missing`, plus confirmation or `--yes`) |
 | `curl \| sh` / arbitrary downloads | **Never** |
 | Disable lints/tests to pass | **Never** |
 
+Every cargo invocation that builds the project (`build`, `check`, `test`, `clippy`,
+`nextest`, …) is given `--locked` whenever a `Cargo.lock` exists, so a lockfile that has
+drifted from `Cargo.toml` surfaces as an error with an instruction instead of being
+rewritten by the audit. A stale lockfile is reported **INCONCLUSIVE** — the audit does
+not resolve it for you. Run `cargo generate-lockfile` yourself, or pass
+`--update-lockfile` to authorize the change.
+
 `--yes` authorizes compatible installs only — **not** lockfile or manifest edits.
 
 `--allow-manifest-changes` records authorization for a future extension; **V1 performs no automatic `Cargo.toml` mutations**.
+
+## Heuristic policy
+
+`veyra-anti-theater` separates what is unambiguous from what is a judgement call.
+
+| Finding | Default | Escalate with |
+|---------|---------|---------------|
+| `VT001` `todo!()` / `VT002` `unimplemented!()` in a production path | blocker | `fail_on_todo`, `fail_on_unimplemented` |
+| `VT003` `panic!()` in `src/` | info | `policy.fail_on_panic = true` |
+| `VT004` `#[ignore]` | info | `policy.fail_on_ignored_tests = true` |
+| `VT006` test without an observable assertion | info | `policy.fail_on_weak_oracles = true` |
+| `VT010` / `VT014` / `VT015` cfg splits, trivial constants | info | `policy.fail_on_cfg_tricks = true` |
+| `VT013` broad `#[allow(...)]` | info | `policy.fail_on_lint_allow = true` |
+| `VT008` `unsafe` | info | `policy.deny_unsafe = true` |
+| non-identical bytes from two clean builds | info | `policy.require_reproducible_build = true` |
+
+There is no honest reading of a shipping function that calls `todo!()`, so those stay
+blockers. The rest are ordinary engineering choices that healthy upstream crates make
+daily; rejecting an unmodified checkout of a popular crate over them teaches people to
+switch the tool off. All of them are always reported — the tool's log opens with a
+`rule histogram` and `report.json` keeps every finding at its real severity. Only the
+blocking decision changes. Fuzz harnesses (`tests/fuzz/`, `fuzz/fuzz_targets/`) are
+excluded from the weak-oracle rule: a libfuzzer target asserts through the engine.
 
 ## Tool statuses
 
@@ -139,11 +213,15 @@ Heavy tools are **SKIPPED** with an explicit reason when configuration/targets a
 | 2 | Missing prerequisites, unauthorized install, or required tools not executable |
 | 3 | Internal application error |
 
+`--fail-on none` accepts the run whatever the findings are; the findings are still in
+`report.json`. It is the only value that disables rejection, and it cannot excuse an
+unauthorized project file change — that is a broken safety promise, not a tunable finding.
+
 ## Evidence output
 
 Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` containing `report.md`, `report.json`, `manifest.json`, per-tool logs, and hashes.
 
-Each tool's logs are pinned by sha256 in the report, so the evidence can be checked against the claim rather than trusted: `python scripts/ci_assert_evidence.py <path>` recomputes the digests and fails when a log was edited after the run, is missing, or backs an `OK` verdict without ever being pinned.
+Each tool's logs are pinned by sha256 in the report, so the evidence can be checked against the claim rather than trusted: `python scripts/ci_assert_evidence.py <workspace-path>` runs a real audit of that workspace root and then recomputes the digests, failing when a log was edited after the run, is missing, or backs an `OK` verdict without ever being pinned. The argument is a workspace path (a directory containing `Cargo.toml`), not an evidence directory.
 
 ## Optional `veyra.toml`
 
@@ -258,7 +336,7 @@ pyinstaller --onefile --name veyra src/veyra_proof/__main__.py
 
 | Job | What it proves |
 |---|---|
-| `test` | The 76-test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
+| `test` | The full test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
 | `audit` | A real audit of the demo crate on a real Rust toolchain, followed by a check that the evidence on disk backs the verdict |
 
 The `test` suite mocks `subprocess.run`, so on its own it cannot catch a broken tool invocation. The `audit` job closes that gap: it runs `scripts/ci_assert_evidence.py`, which executes the auditor for real and then requires that every tool reported `OK` has a log on disk *and* a per-tool `result.json` agreeing with the summary on both status and exit code. Two independently written artifacts must tell the same story.

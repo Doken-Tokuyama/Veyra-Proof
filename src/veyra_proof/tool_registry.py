@@ -88,11 +88,46 @@ PROFILE_ORDER = {
         "kani",
         "vet",
         "check-external-types",
+        # Two clean builds into throwaway target dirs, compared artifact by
+        # artifact. Expensive; --exclude reproducible-build turns it off.
+        "reproducible-build",
         "veyra-e2e",
-        # reproducible-build is opt-in only (--include / tools.enable): full target
-        # tree hashing is not a reliable bit-reproducibility oracle by default.
     ],
 }
+
+PROFILES = tuple(PROFILE_ORDER)
+
+
+def profile_mismatches() -> list[str]:
+    """Tools whose declared profiles and ``PROFILE_ORDER`` disagree.
+
+    These two were independent lists, and they drifted: ``reproducible-build``
+    was documented as part of ``hardened`` while missing from the only list that
+    actually selects tools. Selection reads ``PROFILE_ORDER``; ``default_profiles``
+    is what ``list-tools`` publishes. A tool that disagrees is a tool the docs
+    promise and the profile never runs, so the drift is reported rather than
+    left to rot.
+    """
+    problems: list[str] = []
+    by_id = tool_by_id()
+    for profile, ids in PROFILE_ORDER.items():
+        for tid in ids:
+            tool = by_id.get(tid)
+            if tool is None:
+                continue
+            if profile not in tool.default_profiles:
+                problems.append(
+                    f"{tid} is selected in {profile} but does not declare it "
+                    f"(default_profiles={tool.default_profiles})"
+                )
+    for tool in all_tools():
+        for profile in tool.default_profiles:
+            if profile in PROFILE_ORDER and tool.id not in PROFILE_ORDER[profile]:
+                problems.append(
+                    f"{tool.id} declares {profile} but is not selected by it "
+                    f"(PROFILE_ORDER[{profile}] omits it)"
+                )
+    return problems
 
 
 def all_tools() -> list[Tool]:

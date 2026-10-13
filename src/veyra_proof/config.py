@@ -25,9 +25,24 @@ class PolicyConfig:
     deny_ffi: bool = False
     deny_process: bool = False
     deny_network_in_pure_modules: bool = False
-    fail_on_ignored_tests: bool = True
+    # `todo!()` / `unimplemented!()` in a production path are blockers: there is
+    # no honest reading of a shipping function that calls them.
     fail_on_todo: bool = True
     fail_on_unimplemented: bool = True
+    # These five are judgement calls that healthy upstream crates make daily.
+    # They are always reported, but they only block when a project opts in,
+    # because a tool that rejects rust-lang/regex out of the box teaches people
+    # to ignore it.
+    fail_on_ignored_tests: bool = False
+    fail_on_panic: bool = False
+    fail_on_lint_allow: bool = False
+    fail_on_weak_oracles: bool = False
+    fail_on_cfg_tricks: bool = False
+    # Two clean builds producing different bytes is an observation, not a
+    # verdict: MSVC/PE output is routinely not bit-reproducible, so a default
+    # that rejects would flag a platform rather than a defect. The check always
+    # runs and always reports both digests; only the blocking decision is opt-in.
+    require_reproducible_build: bool = False
     require_lockfile: bool = False
 
 
@@ -293,9 +308,14 @@ def load_veyra_config(workspace_root: Path) -> VeyraConfig:
             deny_ffi=bool(policy.get("deny_ffi", False)),
             deny_process=bool(policy.get("deny_process", False)),
             deny_network_in_pure_modules=bool(policy.get("deny_network_in_pure_modules", False)),
-            fail_on_ignored_tests=bool(policy.get("fail_on_ignored_tests", True)),
+            fail_on_ignored_tests=bool(policy.get("fail_on_ignored_tests", False)),
             fail_on_todo=bool(policy.get("fail_on_todo", True)),
             fail_on_unimplemented=bool(policy.get("fail_on_unimplemented", True)),
+            fail_on_panic=bool(policy.get("fail_on_panic", False)),
+            fail_on_lint_allow=bool(policy.get("fail_on_lint_allow", False)),
+            fail_on_weak_oracles=bool(policy.get("fail_on_weak_oracles", False)),
+            fail_on_cfg_tricks=bool(policy.get("fail_on_cfg_tricks", False)),
+            require_reproducible_build=bool(policy.get("require_reproducible_build", False)),
             require_lockfile=bool(policy.get("require_lockfile", False)),
         ),
         tools=ToolsConfig(

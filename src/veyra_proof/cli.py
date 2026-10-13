@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import traceback
 from dataclasses import asdict
 from pathlib import Path
@@ -23,6 +24,7 @@ from veyra_proof.reporting import (
     decide,
     default_evidence_dir,
     render_markdown,
+    timing_accounting,
     utc_timestamp_dir,
     write_evidence,
 )
@@ -136,6 +138,14 @@ def _build_plan_dict(
         "cargo_lock_policy": {
             "update_lockfile_authorized": update_lockfile,
             "will_run_cargo_update": update_lockfile,
+            "cargo_builds_use_locked": not update_lockfile,
+            "message": (
+                "cargo build/check/test/clippy run with --locked whenever a Cargo.lock "
+                "exists, so a stale lockfile surfaces as an error instead of being "
+                "rewritten by the audit."
+                if not update_lockfile
+                else "--update-lockfile authorized: cargo may resolve and rewrite Cargo.lock."
+            ),
         },
         "cargo_toml_policy": {
             "allow_manifest_changes": allow_manifest_changes,
@@ -280,8 +290,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
     lockfile_existed = ctx.workspace.has_lockfile
     before = snapshot_project_files(ctx.root)
     hashes_before = {k: v.to_dict() for k, v in before.items()}
+    wall_start = time.perf_counter()
 
-    live = CommandRunner(verbose=bool(args.verbose), dry_run=False)
+    live = CommandRunner(
+        verbose=bool(args.verbose),
+        dry_run=False,
+        allow_lockfile_update=bool(args.update_lockfile),
+    )
 
     if install_plans:
         authorized = confirm_installs(install_plans, yes=bool(args.yes))
@@ -443,6 +458,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         decision.decision = "REJECTED"
         decision.exit_code = 1
 
+    timing = timing_accounting(results, wall_seconds=time.perf_counter() - wall_start)
+
     os_arch = f"{ctx.platform.os.value} / {ctx.platform.architecture}"
     toolchain = ctx.platform.active_toolchain or ctx.platform.rustc_version or "unknown"
     md = render_markdown(
@@ -454,6 +471,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         decision=decision,
         results=results,
         changes=changes,
+        timing=timing,
     )
     report_json = {
         "workspace": ctx.workspace.to_dict(),
@@ -463,6 +481,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "required_tool_ids": req_ids,
         "config_defaults_used": ctx.config.defaults_used,
         "install_authorization": plan.get("install_authorization"),
+        "timing": timing,
         "timestamp_utc": timestamp,
     }
     manifest = {
@@ -474,6 +493,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "platform": ctx.platform.to_dict(),
         "commands": [r.command for r in results],
         "results_status": {r.tool_id: r.status for r in results},
+        "timing": timing,
         "hashes_before": hashes_before,
         "hashes_after": hashes_after,
         "required_tool_ids": req_ids,

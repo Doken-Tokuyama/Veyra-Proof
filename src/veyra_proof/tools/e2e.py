@@ -27,6 +27,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -58,9 +59,6 @@ def build_command(context: AuditContext) -> list[str]:
         cmd.append("--no-default-features")
     for feature in e2e.features:
         cmd.extend(["--features", feature])
-    if context.workspace.has_lockfile:
-        # Reproducible dependencies: refuse to silently diverge from Cargo.lock.
-        cmd.append("--locked")
     return cmd
 
 
@@ -396,14 +394,15 @@ class E2eTool(Tool):
         e2e = context.config.e2e
         if e2e.errors or not e2e.scenarios:
             return []
-        return [build_command(context)] + [
+        return [self.cargo_command(context, build_command(context))] + [
             ["<built-binary>", *scenario.argv] for scenario in e2e.scenarios
         ]
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        clock = time.perf_counter()
         e2e = context.config.e2e
-        command = build_command(context)
+        command = self.cargo_command(context, build_command(context))
 
         findings: list[Finding] = [
             Finding(
@@ -426,7 +425,7 @@ class E2eTool(Tool):
                 return self._finish(
                     context,
                     started,
-                    command,
+                    command,                    elapsed=time.perf_counter() - clock,
                     findings=findings,
                     log=_log_lines(Path("(not built)"), "-", []),
                     build_stderr="",
@@ -450,7 +449,7 @@ class E2eTool(Tool):
             return self._finish(
                 context,
                 started,
-                command,
+                command,                elapsed=time.perf_counter() - clock,
                 findings=findings,
                 log=f"build timed out after {build.duration_seconds:.1f}s\n",
                 build_stderr=_excerpt(build.stderr),
@@ -480,7 +479,7 @@ class E2eTool(Tool):
             return self._finish(
                 context,
                 started,
-                command,
+                command,                elapsed=time.perf_counter() - clock,
                 findings=findings,
                 log=_log_lines(Path("(build failed)"), "-", []),
                 build_stderr=_excerpt(build.stderr),
@@ -494,7 +493,7 @@ class E2eTool(Tool):
             return self._finish(
                 context,
                 started,
-                command,
+                command,                elapsed=time.perf_counter() - clock,
                 findings=findings,
                 log=_log_lines(Path("(no binary produced)"), "-", []),
                 build_stderr=_excerpt(build.stderr),
@@ -526,7 +525,7 @@ class E2eTool(Tool):
                 return self._finish(
                     context,
                     started,
-                    command,
+                    command,                    elapsed=time.perf_counter() - clock,
                     findings=findings,
                     log=_log_lines(Path("(declared binary missing)"), "-", []),
                     build_stderr=_excerpt(build.stderr),
@@ -600,7 +599,7 @@ class E2eTool(Tool):
         return self._finish(
             context,
             started,
-            command,
+            command,            elapsed=time.perf_counter() - clock,
             findings=findings,
             log=log,
             build_stderr=_excerpt(build.stderr),
@@ -631,6 +630,7 @@ class E2eTool(Tool):
         digest: str | None = None,
         target_name: str | None = None,
         outcomes: list[dict[str, Any]] | None = None,
+        elapsed: float | None = None,
     ):
         out, err = self.write_logs(context, log, build_stderr)
         environment: dict[str, str] = {
@@ -649,6 +649,9 @@ class E2eTool(Tool):
             started_at=started,
             command=command,
             exit_code=exit_code,
+            # This tool compiles the workspace and then executes every scenario.
+            # Reporting zero would hide the single most expensive step of the run.
+            duration_seconds=elapsed if elapsed is not None else 0.0,
             stdout_path=out,
             stderr_path=err,
             findings=findings,

@@ -4,11 +4,37 @@
 
 | Profile | Intent |
 |---------|--------|
-| `quick` | fmt, check, clippy `-D warnings`, test, audit (if lockfile), anti-theater, veyra-e2e (if scenarios declared) |
-| `standard` | quick + nextest, llvm-cov, deny, geiger, machete, dylint (if configured), semver-checks (libs), full anti-theater |
-| `hardened` | standard + miri, mutants (configured paths), fuzz (configured targets), kani, vet, check-external-types, reproducible-build attempt |
+| `quick` | rustfmt, cargo-check, clippy `-D warnings`, cargo-test, audit, veyra-anti-theater, veyra-e2e (if scenarios declared) |
+| `standard` | quick + nextest, llvm-cov, deny, geiger, machete, dylint (if configured), semver-checks (libs) |
+| `hardened` | standard + miri, mutants (configured paths), fuzz (configured targets), kani, vet, check-external-types, reproducible-build |
 
 Heavy tools SKIP with an explicit reason when config/targets are missing.
+
+`reproducible-build` runs two clean builds and compares the final artifacts; it is
+the most expensive check in `hardened` and `--exclude reproducible-build` turns it
+off. Differing hashes are `INCONCLUSIVE` with both digests, never a pass, and are
+informational unless `policy.require_reproducible_build = true`.
+
+Every tool records its own duration: `report.json` has a `timing` block and
+`report.md` a `## Time` table with per-tool seconds, the total and the wall clock.
+Quote it when someone asks why an audit took minutes — on a real crate the cost is
+usually its own test suite. Veyra neither caches builds across runs nor skips checks
+to go faster.
+
+## Verdicts that are not passes
+
+| Situation | Verdict |
+|-----------|---------|
+| `Cargo.lock` out of date with `Cargo.toml` | `INCONCLUSIVE` — cargo runs with `--locked`, and Veyra will not rewrite the lockfile |
+| Manifest declares dependencies, no lockfile | `SKIPPED` + `unlocked-dependencies` — dependency safety is unknown |
+| A target needs nightly (`#![feature]`) | `INCONCLUSIVE`, naming the files not verified; lib/bins/tests are still checked |
+| Scenario timed out, tool timed out | `INCONCLUSIVE` |
+
+## Heuristic policy (`veyra.toml` `[policy]`)
+
+`todo!()` / `unimplemented!()` in a production path are blockers. Everything else is
+reported and only blocks when asked for: `fail_on_ignored_tests`, `fail_on_panic`,
+`fail_on_lint_allow`, `fail_on_weak_oracles`, `fail_on_cfg_tricks`, `deny_unsafe`.
 
 ## Exit codes
 
@@ -63,9 +89,14 @@ Every log a tool writes — `stdout.log`, `stderr.log`, and `skip.txt` when a to
 | Action | Default |
 |--------|---------|
 | Modify `Cargo.toml` | Forbidden |
+| Rewrite `Cargo.lock` during a run | Forbidden — cargo runs with `--locked` |
 | `cargo update` | Needs `--update-lockfile` |
 | Install tools | Needs `--install-missing` + confirm or `--yes` |
 | `curl \| sh` | Never |
+
+`--fail-on none` accepts the run whatever it found; the findings stay in `report.json`.
+It is the only value that disables rejection, and it cannot excuse an unauthorized
+project file change.
 
 ## Packaging note
 
