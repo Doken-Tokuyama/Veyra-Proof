@@ -353,3 +353,90 @@ def test_a_report_with_no_results_is_caught(checker, tmp_path) -> None:
 
     problems, _ = checker.verify(directory, 0)
     assert problems == ["report.json lists no tool results"]
+
+
+class TestFindingsNeedOutput:
+    """A finding was parsed out of something; the capture must still hold it.
+
+    This is the shape that bit us on Windows: the ``subprocess`` reader thread
+    died on one undecodable byte, both captures came back ``None``, two empty
+    logs were written, and the tool still reported ``FINDINGS``. An empty log
+    behind a verdict is the exact failure this project exists to prevent, so the
+    checker now refuses to sign it off.
+    """
+
+    @staticmethod
+    def _blanks_the_logs(directory: Path) -> None:
+        tools = directory / "tools" / "rustfmt"
+        (tools / "stdout.log").write_text("", encoding="utf-8")
+        for name in ("stdout.log", "stderr.log"):
+            record = tools / "result.json"
+            data = json.loads(record.read_text(encoding="utf-8"))
+            data.setdefault("artifact_hashes", {})
+            data["artifact_hashes"][name] = _sha256(tools / "stdout.log")
+            record.write_text(json.dumps(data), encoding="utf-8")
+        report_path = directory / "report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        digests = report["results"][0]["artifact_hashes"]
+        digests["stdout.log"] = _sha256(tools / "stdout.log")
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    def test_findings_with_every_log_empty_is_caught(self, checker, tmp_path) -> None:
+        directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
+        self._blanks_the_logs(directory)
+
+        problems, _ = checker.verify(directory, 1)
+
+        assert any("every captured log is empty" in p for p in problems), problems
+
+    def test_error_with_every_log_empty_is_caught(self, checker, tmp_path) -> None:
+        directory = _evidence(tmp_path, status="ERROR", exit_code=101)
+        self._blanks_the_logs(directory)
+
+        problems, _ = checker.verify(directory, 1)
+
+        assert any("every captured log is empty" in p for p in problems), problems
+
+    def test_findings_with_no_captured_output_at_all_is_caught(self, checker, tmp_path) -> None:
+        directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
+        report_path = directory / "report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["results"][0].pop("stdout_path")
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+
+        problems, _ = checker.verify(directory, 1)
+
+        assert any("without any captured output" in p for p in problems), problems
+
+    def test_findings_with_real_output_still_passes(self, checker, tmp_path) -> None:
+            directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
+            log = directory / "tools" / "rustfmt" / "stdout.log"
+            log.write_text("Diff in /w/src/lib.rs at line 1:\n", encoding="utf-8")
+            digest = _sha256(log)
+            for path in (
+                directory / "tools" / "rustfmt" / "result.json",
+                directory / "report.json",
+            ):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                target = (
+                    data["artifact_hashes"]
+                    if path.name == "result.json"
+                    else data["results"][0]["artifact_hashes"]
+                )
+                target["stdout.log"] = digest
+                if path.name == "report.json":
+                    data["decision"]["exit_code"] = 1
+                path.write_text(json.dumps(data), encoding="utf-8")
+    
+            problems, confirmed = checker.verify(directory, 1)
+    
+            assert problems == [], problems
+            assert any("rustfmt FINDINGS exit 1" in c for c in confirmed)
+
+    def test_a_silent_success_is_still_accepted(self, checker, tmp_path) -> None:
+        """`cargo fmt --check` on clean code prints nothing. That is not a defect."""
+        directory = _evidence(tmp_path, status="OK", exit_code=0)
+
+        problems, _ = checker.verify(directory, 0)
+
+        assert problems == [], problems

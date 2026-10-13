@@ -185,6 +185,24 @@ def verify(
                 fault = "reported OK without a recorded exit code"
             elif not log or not Path(log).is_file():
                 fault = "reported OK without a log on disk"
+        elif status in {"FINDINGS", "ERROR"}:
+            # A finding was parsed out of something the tool read, so both
+            # captures have to hold it. Empty logs here mean the verdict is
+            # unsupported — the exact "all clear with no evidence" shape this
+            # check exists to refuse. (`cargo fmt --check` on clean code is
+            # legitimately silent, which is why OK is not checked this way.)
+            logs = [
+                Path(entry.get(field))
+                for field in ("stdout_path", "stderr_path")
+                if entry.get(field)
+            ]
+            present = [path for path in logs if path.is_file()]
+            if not logs:
+                fault = f"reported {status} without any captured output"
+            elif present and not any(path.stat().st_size > 0 for path in present):
+                fault = f"reported {status} but every captured log is empty"
+            # A log that is gone entirely is left to the digest check below,
+            # which names the missing file rather than the empty capture.
 
         own = None
         if fault is None:

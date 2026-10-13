@@ -34,13 +34,31 @@ class CargoAuditTool(Tool):
 
 
     def planned_commands(self, context: AuditContext):
-        if not context.workspace.has_lockfile:
+        if not self._lockfile_present(context):
             return []
         return [["cargo", "audit"]]
 
+    @staticmethod
+    def _lockfile_present(context: AuditContext) -> bool:
+        """Re-checked at run time, not just at discovery time.
+
+        The first audit of a project with no lockfile used to skip this tool
+        outright, so the very first run of a vulnerable project reported
+        "no advisories" by omission. Cargo has already written the lock by the
+        time this tool runs, so the question is asked again here.
+        """
+        return (context.root / "Cargo.lock").is_file()
+
+    @staticmethod
+    def _declared_dependencies(workspace) -> bool:
+        for package in workspace.packages:
+            if package.get("dependencies") or package.get("dev-dependencies"):
+                return True
+        return False
+
     def run(self, context: AuditContext):
         started = utc_now_iso()
-        if not context.workspace.has_lockfile:
+        if not self._lockfile_present(context):
             if context.config.policy.require_lockfile:
                 return self.make_result(
                     status="FINDINGS", severity="error", started_at=started,
@@ -52,7 +70,31 @@ class CargoAuditTool(Tool):
                         recommendation="Commit a Cargo.lock for reproducible dependency audits.",
                     )],
                 )
-            return self.skipped(context, "no Cargo.lock; cargo-audit skipped")
+            if self._declared_dependencies(context.workspace):
+                # Skipping here would read as "no advisories". It is not: nothing
+                # was checked, and something was there to check.
+                tr = self.skipped(
+                    context,
+                    "Cargo.lock absent, so no dependency was audited; "
+                    "vulnerable dependencies cannot be ruled out (this is not a pass)",
+                    skip_kind="intentional",
+                )
+                tr.findings = [Finding(
+                    rule="unlocked-dependencies",
+                    severity="info",
+                    confidence="high",
+                    file="Cargo.lock",
+                    line=None,
+                    excerpt=None,
+                    explanation=(
+                        "The manifest declares dependencies but no Cargo.lock exists, so "
+                        "cargo-audit had nothing to check. Dependency safety is unknown."
+                    ),
+                    recommendation="Run `cargo generate-lockfile` (or pass --update-lockfile) and audit again.",
+                )]
+                self.save_result_json(context, tr)
+                return tr
+            return self.skipped(context, "no dependencies declared; cargo-audit skipped")
         cmd = ["cargo", "audit"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)

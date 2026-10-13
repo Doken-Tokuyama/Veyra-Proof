@@ -79,6 +79,7 @@ Target is a path containing `Cargo.toml` (workspace or package). Default profile
    ```
 5. Report from real output only: the decision, the exit code, and the evidence dir under `$TARGET/.veyra/evidence/<UTC>/` (or wherever `--evidence-dir` pointed).
 6. If the project declares `[[e2e.scenarios]]` in `veyra.toml`, `veyra-e2e` builds the workspace and drives the produced binary through each declared journey. Report what each scenario observed — exit code and printed output, from its log — not only the tool's status. No declared scenarios means SKIPPED: say the behavior was not verified instead of implying it was.
+7. Say `INCONCLUSIVE` in words. It covers a stale lockfile, a nightly-only target and a timeout — each one means a check did not complete. Never describe an accepted run as "clean" without naming what was skipped, inconclusive or informational; the anti-theater log opens with a rule histogram of everything it noticed.
 
 **Done when:** the audit finished (or dry-run / plan-only if that is what was asked) and the user sees the real verdict plus the evidence path.
 

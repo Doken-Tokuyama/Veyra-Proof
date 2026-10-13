@@ -34,6 +34,10 @@ def decide(
 ) -> AuditDecision:
     """
     Decision rules:
+    - Unauthorized project file changes reject under every --fail-on value:
+      that is a broken safety promise, not a finding to be tuned away.
+    - --fail-on none reports findings and accepts. It is the only value that
+      disables rejection, because that is what the operator asked for.
     - CORE required tools must run as OK (or FINDINGS handled by fail_on).
     - Intentional/config-gated SKIPPED does not make INCONCLUSIVE.
     - Missing required executable (skip_kind=missing) → exit 2.
@@ -48,6 +52,7 @@ def decide(
     blockers: list[str] = []
     error_findings: list[str] = []
     warning_findings = False
+    warning_labels: list[str] = []
     tool_errors: list[str] = []
     inconclusive_required: list[str] = []
     inconclusive_optional: list[str] = []
@@ -70,7 +75,12 @@ def decide(
             if kind in {"missing", "incompatible", "unknown"}:
                 missing_skips.append(r.tool_id)
             # intentional / config_gated skips for non-core should not be in required
-        if r.status == "FINDINGS":
+        if r.status in {"FINDINGS", "INCONCLUSIVE"}:
+            # An INCONCLUSIVE tool can still have observed something concrete —
+            # `reproducible-build` reporting differing artifact hashes is a fact,
+            # not an absence of one. Counting only FINDINGS results would let a
+            # real observation through the back door of the tool's overall status,
+            # which is what --fail-on findings exists to prevent.
             for f in r.findings:
                 label = f"{r.tool_id}:{f.rule}"
                 if f.severity == "blocker":
@@ -79,6 +89,7 @@ def decide(
                     error_findings.append(label)
                 elif f.severity == "warning":
                     warning_findings = True
+                    warning_labels.append(label)
                 # info findings do not affect fail_on=findings
 
     def _join(items: list[str], limit: int = 8) -> str:
@@ -87,6 +98,9 @@ def decide(
     if hash_incongruence:
         return AuditDecision("REJECTED", "Unauthorized or incongruent project file changes detected", 1)
 
+    if fail_on == "none":
+        return AuditDecision("ACCEPTED", "fail-on=none; no hard rejection criteria applied", 0)
+
     if blockers:
         return AuditDecision("REJECTED", f"Blocker finding(s): {_join(blockers)}", 1)
 
@@ -94,16 +108,18 @@ def decide(
         return AuditDecision("REJECTED", f"Error finding(s): {_join(error_findings)}", 1)
 
     if fail_on == "findings" and (warning_findings or error_findings or blockers):
-        return AuditDecision("REJECTED", "Findings reported under --fail-on findings", 1)
+        named = f": {_join(warning_labels)}" if warning_labels else ""
+        return AuditDecision("REJECTED", f"Findings reported under --fail-on findings{named}", 1)
 
     # Also catch FINDINGS with only warnings already handled; FINDINGS with empty visible?
     if fail_on == "findings" and any(
-        r.status == "FINDINGS" and any(f.severity in {"warning", "error", "blocker"} for f in r.findings)
+        r.status in {"FINDINGS", "INCONCLUSIVE"}
+        and any(f.severity in {"warning", "error", "blocker"} for f in r.findings)
         for r in results
     ):
         return AuditDecision("REJECTED", "Findings reported under --fail-on findings", 1)
 
-    if tool_errors and fail_on != "none":
+    if tool_errors:
         return AuditDecision("REJECTED", f"Tool error(s): {_join(tool_errors)}", 1)
 
     if missing or missing_skips:
@@ -116,18 +132,14 @@ def decide(
     if inconclusive_required:
         if fail_on == "inconclusive":
             return AuditDecision("REJECTED", f"Inconclusive required checks: {_join(inconclusive_required)}", 1)
-        if fail_on != "none":
-            return AuditDecision(
-                "INCONCLUSIVE",
-                f"Inconclusive required tool result(s): {_join(inconclusive_required)}",
-                1,
-            )
+        return AuditDecision(
+            "INCONCLUSIVE",
+            f"Inconclusive required tool result(s): {_join(inconclusive_required)}",
+            1,
+        )
 
     if inconclusive_optional and fail_on == "inconclusive":
         return AuditDecision("REJECTED", f"Inconclusive optional checks: {_join(inconclusive_optional)}", 1)
-
-    if fail_on == "none":
-        return AuditDecision("ACCEPTED", "fail-on=none; no hard rejection criteria applied", 0)
 
     for tid in required:
         r = by_id.get(tid)
@@ -189,6 +201,78 @@ def classify_project_changes(
     return annotated, unauthorized
 
 
+def timing_accounting(
+    results: list[ToolResult],
+    *,
+    wall_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Where the run's time actually went, from the numbers the tools recorded.
+
+    A profile that takes eight minutes is a fact an operator needs before
+    blaming the tool: on a real project the time is the project's own test
+    suite, not the audit. Recorded in the report so the cost is answerable from
+    the evidence instead of guessed at from the wall clock.
+    """
+    ranked = sorted(
+        results,
+        key=lambda r: -(r.duration_seconds or 0.0),
+    )
+    total = sum(r.duration_seconds or 0.0 for r in results)
+    slowest = [
+        {"tool": r.tool_id, "status": r.status, "seconds": round(r.duration_seconds or 0.0, 2)}
+        for r in ranked
+        if (r.duration_seconds or 0.0) > 0
+    ]
+    accounting: dict[str, Any] = {
+        "tool_seconds": round(total, 2),
+        "tools_timed": len(slowest),
+        # Split so a tool that never ran is never confused with a tool whose
+        # duration went unrecorded — the second would be a defect.
+        "tools_without_timing": [
+            {"tool": r.tool_id, "status": r.status}
+            for r in results
+            if not (r.duration_seconds or 0.0) > 0
+        ],
+        "slowest": slowest[:8],
+    }
+    if wall_seconds is not None:
+        accounting["wall_seconds"] = round(wall_seconds, 2)
+        accounting["unaccounted_seconds"] = round(max(0.0, wall_seconds - total), 2)
+    return accounting
+
+
+def render_timing(accounting: dict[str, Any]) -> str:
+    """The per-tool time table appended to the terminal report."""
+    lines = ["## Time", ""]
+    for entry in accounting.get("slowest", []):
+        lines.append(f"- {entry['seconds']:>8.1f}s  {entry['tool']} ({entry['status']})")
+    untimed = accounting.get("tools_without_timing") or []
+    if untimed:
+        never_ran = [e["tool"] for e in untimed if e["status"] in {"SKIPPED", "MISSING"}]
+        unrecorded = [
+            e["tool"] for e in untimed if e["status"] not in {"SKIPPED", "MISSING"}
+        ]
+        if never_ran:
+            lines.append(f"- {len(never_ran)} tool(s) did not run: {', '.join(never_ran)}")
+        if unrecorded:
+            # A tool that ran and recorded no time would be the bug this whole
+            # section exists to surface, so it is called out separately.
+            lines.append(
+                f"- {len(unrecorded)} tool(s) ran without recording a duration: "
+                f"{', '.join(unrecorded)}"
+            )
+    lines.append(
+        f"- total in tools: {accounting['tool_seconds']}s"
+        + (
+            f" of {accounting['wall_seconds']}s wall"
+            if accounting.get("wall_seconds") is not None
+            else ""
+        )
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_markdown(
     *,
     workspace: str,
@@ -200,6 +284,7 @@ def render_markdown(
     results: list[ToolResult],
     changes: list[dict[str, Any]],
     evidence_manifest: str = "manifest.json",
+    timing: dict[str, Any] | None = None,
 ) -> str:
     ok = [r for r in results if r.status == "OK"]
     problems = [r for r in results if r.status == "FINDINGS"]
@@ -279,6 +364,9 @@ def render_markdown(
             auth = c.get("authorization")
             suffix = f" [{auth}]" if auth else ""
             lines.append(f"- {c.get('path')}: {c.get('change')}{suffix}")
+
+    if timing:
+        lines.extend(["", render_timing(timing).rstrip("\n")])
 
     lines.append("")
     return "\n".join(lines)

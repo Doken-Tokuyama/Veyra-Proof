@@ -33,17 +33,25 @@ class CargoTestTool(Tool):
         )
 
     def planned_commands(self, context: AuditContext):
-        return [["cargo", "test", "--workspace"]]
+        return [self.cargo_command(context, ["cargo", "test", "--workspace"])]
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
-        cmd = ["cargo", "test", "--workspace"]
+        cmd = self.cargo_command(context, ["cargo", "test", "--workspace"])
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
         text = result.stdout + "\n" + result.stderr
         findings = parse_test_failures(text)
-        if context.config.policy.fail_on_ignored_tests:
-            findings.extend(parse_ignored_tests(text))
+        # An ignored test is reported either way. The policy decides whether it
+        # is an error or a note, never whether it is hidden.
+        findings.extend(
+            parse_ignored_tests(
+                text,
+                severity="error"
+                if context.config.policy.fail_on_ignored_tests
+                else "info",
+            )
+        )
         status, severity, summary = classify_from_command(
             timed_out=result.timed_out,
             exit_code=result.exit_code,

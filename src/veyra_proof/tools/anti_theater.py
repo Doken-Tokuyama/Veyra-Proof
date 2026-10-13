@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +12,11 @@ from veyra_proof.models import DetectionResult, Finding, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 SKIP_DIR_NAMES = {".git", "target", ".veyra", "node_modules", ".cargo"}
+
+# Fuzzing harnesses are not unit tests. Their "body" is a corpus-driven loop
+# whose oracle lives in the fuzzing engine, so "no assert!() here" is a property
+# of how libfuzzer works, not a weak test.
+FUZZ_PATH_MARKERS = ("/fuzz/", "/fuzz_targets/", "/fuzz_targets")
 
 
 @dataclass
@@ -65,6 +72,11 @@ def _is_test_path(rel: str) -> bool:
     )
 
 
+def _is_fuzz_path(rel: str) -> bool:
+    norm = f"/{rel.replace(chr(92), '/')}"
+    return any(marker in norm for marker in FUZZ_PATH_MARKERS)
+
+
 ASSERT_MACROS = ("assert!", "assert_eq!", "assert_ne!", "matches!", "pretty_assertions")
 
 # Oracles that also make a test fail observably: a failed `expect`/`unwrap`
@@ -105,11 +117,61 @@ def _test_module_lines(lines: list[str]) -> set[int]:
     return inside
 
 
+def _strip_line_comment(line: str) -> str:
+    """Drop a trailing ``//`` comment, respecting string literals.
+
+    A doc comment that *names* `todo!()` is not a call to it. Reading one as the
+    other turns a module's own explanation of its placeholders into a blocker,
+    which is the worst way for this rule to be wrong.
+    """
+    in_string = False
+    escaped = False
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if escaped:
+            escaped = False
+        elif char == "\\" and in_string:
+            escaped = True
+        elif char == '"':
+            in_string = not in_string
+        elif not in_string and char == "/" and line[index + 1 : index + 2] == "/":
+            return line[:index]
+        index += 1
+    return line
+
+
+def _code_lines(lines: list[str]) -> list[tuple[str, str]]:
+    """(code, stripped code) per line, with comments and block comments removed."""
+    out: list[tuple[str, str]] = []
+    in_block = False
+    for raw in lines:
+        code = _strip_line_comment(raw) if not in_block else ""
+        if not in_block and "/*" in code:
+            before, _, after = code.partition("/*")
+            if "*/" in after:
+                code = before + after.split("*/", 1)[1]
+            else:
+                code = before
+                in_block = True
+        out.append((code, code.strip()))
+    return out
+
+
 def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[Finding]:
     findings: list[Finding] = []
     todo_sev: Severity = "blocker" if policy.fail_on_todo else "warning"
     unimpl_sev: Severity = "blocker" if policy.fail_on_unimplemented else "warning"
-    ignore_sev: Severity = "error" if policy.fail_on_ignored_tests else "warning"
+    ignore_sev: Severity = "error" if policy.fail_on_ignored_tests else "info"
+    # `todo!()` and `unimplemented!()` are unambiguous: there is no reading of a
+    # shipping function that calls them. `panic!` in an invariant, `#[allow]`
+    # and `#[ignore]` are ordinary engineering choices that upstream projects
+    # make daily, so they are reported for review and never block by default.
+    # Each of these escalates to a blocking severity when the project says so.
+    panic_sev: Severity = "warning" if policy.fail_on_panic else "info"
+    allow_sev: Severity = "warning" if policy.fail_on_lint_allow else "info"
+    weak_oracle_sev: Severity = "warning" if policy.fail_on_weak_oracles else "info"
+    cfg_sev: Severity = "warning" if policy.fail_on_cfg_tricks else "info"
 
     for path in _iter_rs_files(root):
         rel = _rel(root, path)
@@ -119,12 +181,16 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
             continue
         lines = text.splitlines()
         test_lines = _test_module_lines(lines)
+        # Every macro/attribute rule below reads the code, never the prose. A
+        # module that documents why it has placeholders must not be reported as
+        # a module that ships them.
+        code_lines = _code_lines(lines)
         in_cfg_test = False
         cfg_test_depth = 0
         brace_balance = 0
 
         for idx, line in enumerate(lines, start=1):
-            stripped = line.strip()
+            _raw, stripped = code_lines[idx - 1]
 
             if "#[cfg(test)]" in stripped:
                 in_cfg_test = True
@@ -132,18 +198,24 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                 findings.append(
                     Finding(
                         rule="VT010",
-                        severity="warning",
-                        confidence="medium",
+                        severity=cfg_sev,
+                        confidence="low",
                         file=rel,
                         line=idx,
                         excerpt=stripped[:120],
-                        explanation="#[cfg(not(test))] may alter critical production paths (possible bypass; requires human review).",
+                        explanation="#[cfg(not(test))] splits production from test behaviour (may hide a bypass; informational; requires human review).",
                         recommendation="Ensure production and test code paths are intentional and reviewed.",
                     )
                 )
 
+            # `#[cfg(test)]` code never reaches a release binary, so a placeholder
+            # there is a scratch note to the author, not a shipped stub. Reading it
+            # as production is how a crate's own test scaffolding gets reported as
+            # "fake code".
+            in_test_module = idx in test_lines
+
             if "todo!()" in stripped or re.search(r"\btodo!\s*\(", stripped):
-                if _is_production_src(rel) and not _is_test_path(rel):
+                if _is_production_src(rel) and not _is_test_path(rel) and not in_test_module:
                     findings.append(
                         Finding(
                             rule="VT001",
@@ -158,7 +230,7 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                     )
 
             if "unimplemented!()" in stripped or re.search(r"\bunimplemented!\s*\(", stripped):
-                if _is_production_src(rel) and not _is_test_path(rel):
+                if _is_production_src(rel) and not _is_test_path(rel) and not in_test_module:
                     findings.append(
                         Finding(
                             rule="VT002",
@@ -181,13 +253,13 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                 findings.append(
                     Finding(
                         rule="VT003",
-                        severity="warning",
-                        confidence="medium",
+                        severity=panic_sev,
+                        confidence="low",
                         file=rel,
                         line=idx,
                         excerpt=stripped[:120],
-                        explanation="`panic!()` in src/ may indicate unfinished or theatrical error handling (requires human review).",
-                        recommendation="Prefer Result-based error handling in production paths.",
+                        explanation="`panic!()` in src/ may be an unfinished invariant or theatrical error handling (informational; requires human review).",
+                        recommendation="Prefer Result-based error handling in production paths unless the panic documents a true invariant.",
                     )
                 )
 
@@ -196,11 +268,11 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                     Finding(
                         rule="VT004",
                         severity=ignore_sev,
-                        confidence="high",
+                        confidence="medium",
                         file=rel,
                         line=idx,
                         excerpt=stripped[:120],
-                        explanation="Test marked #[ignore] (test weakness / possible bypass; requires human review).",
+                        explanation="Test marked #[ignore] (test is not exercised by a default run; requires human review).",
                         recommendation="Un-ignore the test or document why it must remain ignored.",
                     )
                 )
@@ -312,13 +384,13 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                 findings.append(
                     Finding(
                         rule="VT013",
-                        severity="warning",
-                        confidence="medium",
+                        severity=allow_sev,
+                        confidence="low",
                         file=rel,
                         line=idx,
                         excerpt=stripped[:120],
-                        explanation="Critical lint allow attribute near code (possible bypass; requires human review).",
-                        recommendation="Avoid broad allow attributes around suspicious or unfinished code.",
+                        explanation="Lint allow attribute near code (may hide a real defect; informational; requires human review).",
+                        recommendation="Keep broad allow attributes narrow and justified.",
                     )
                 )
 
@@ -328,25 +400,25 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
             if re.match(r"^\s*pub\s+fn\s+\w+", stripped):
                 # The window includes the signature itself and needs no line
                 # after it, so a `pub fn` on the file's last line is still read.
-                window = "\n".join(lines[idx - 1 : min(idx + 6, len(lines))])
+                window = "\n".join(code for code, _ in code_lines[idx - 1 : min(idx + 6, len(code_lines))])
                 if re.search(
                     r"pub\s+fn\s+\w+[^{]*\{\s*(?:return\s+)?\d+\s*;?\s*\}", window
                 ):
                     findings.append(
                         Finding(
                             rule="VT014",
-                            severity="warning",
+                            severity=cfg_sev,
                             confidence="low",
                             file=rel,
                             line=idx,
                             excerpt=stripped[:120],
-                            explanation="Public function appears to return a trivial constant (suspicious placeholder; not proof of fake code; requires human review).",
+                            explanation="Public function appears to return a trivial constant (suspicious placeholder; informational; not proof of fake code; requires human review).",
                             recommendation="Confirm the constant is intentional domain logic.",
                         )
                     )
 
         # Test functions without assertions
-        if _is_test_path(rel) or "#[cfg(test)]" in text:
+        if (_is_test_path(rel) or "#[cfg(test)]" in text) and not _is_fuzz_path(rel):
             for m in re.finditer(r"#\[test\]\s*(?:async\s+)?fn\s+(\w+)\s*\([^)]*\)\s*\{", text):
                 # crude body extract until next fn or end — limited scan
                 start = m.end()
@@ -359,17 +431,22 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                         depth -= 1
                     i += 1
                 body = text[start:i]
-                if not any(a in body for a in TEST_ORACLE_MARKERS) and "should_panic" not in text[max(0, m.start() - 80) : m.start()]:
+                preceding = text[max(0, m.start() - 120) : m.start()]
+                # An ignored test asserts nothing on purpose; the harness chose
+                # not to run it. That is VT004's business, not VT006's.
+                if "#[ignore]" in preceding:
+                    continue
+                if not any(a in body for a in TEST_ORACLE_MARKERS) and "should_panic" not in preceding:
                     line_no = text[: m.start()].count("\n") + 1
                     findings.append(
                         Finding(
                             rule="VT006",
-                            severity="warning",
-                            confidence="medium",
+                            severity=weak_oracle_sev,
+                            confidence="low",
                             file=rel,
                             line=line_no,
                             excerpt=f"fn {m.group(1)}",
-                            explanation="Test has no observable assertion (weak test oracle; requires human review).",
+                            explanation="Test has no observable assertion (may be a weak oracle; informational; requires human review).",
                             recommendation="Add assertions that validate behavior, not only that code runs.",
                         )
                     )
@@ -377,17 +454,17 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
         # #[cfg(test)] public impl theatrical split — look for cfg(test) pub fn near cfg(not(test))
         if "#[cfg(test)]" in text and "#[cfg(not(test))]" in text and _is_production_src(rel):
             findings.append(
-                Finding(
-                    rule="VT015",
-                    severity="warning",
-                    confidence="medium",
-                    file=rel,
-                    line=None,
-                    excerpt="#[cfg(test)] / #[cfg(not(test))]",
-                    explanation="File splits behavior between test and non-test cfg (possible theatrical implementation; requires human review).",
-                    recommendation="Ensure non-test builds expose real logic, not panic/todo stubs.",
+                    Finding(
+                        rule="VT015",
+                        severity=cfg_sev,
+                        confidence="low",
+                        file=rel,
+                        line=None,
+                        excerpt="#[cfg(test)] / #[cfg(not(test))]",
+                        explanation="File splits behavior between test and non-test cfg (informational; not proof of a theatrical implementation; requires human review).",
+                        recommendation="Ensure non-test builds expose real logic, not panic/todo stubs.",
+                    )
                 )
-            )
 
     # Downgrade info findings out of Problems by filtering in reporting; keep them in JSON
     return findings
@@ -423,6 +500,7 @@ class AntiTheaterTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        clock = time.perf_counter()
         findings = analyze_rust_sources(
             context.root,
             context.config.project.critical_paths,
@@ -430,10 +508,19 @@ class AntiTheaterTool(Tool):
         )
         # Drop pure info from blocker decision path but keep in result
         visible = [f for f in findings if f.severity != "info"]
+        counts = Counter(f.rule for f in findings)
+        histogram = ", ".join(f"{rule}={n}" for rule, n in sorted(counts.items()))
         out, err = self.write_logs(
             context,
             "\n".join(
-                f"{f.rule} {f.severity} {f.file}:{f.line} {f.explanation}" for f in findings
+                [
+                    f"rule histogram: {histogram or 'none'}",
+                    "",
+                ]
+                + [
+                    f"{f.rule} {f.severity} {f.file}:{f.line} {f.explanation}"
+                    for f in findings
+                ]
             ),
             "",
         )
@@ -443,11 +530,19 @@ class AntiTheaterTool(Tool):
                 key=lambda s: {"info": 0, "warning": 1, "error": 2, "blocker": 3}[s],
             )
             status = "FINDINGS"
-            summary = f"{len(visible)} heuristic finding(s); not definitive proof of fake code"
+            blocking = sorted({f.rule for f in visible})
+            summary = (
+                f"{len(visible)} finding(s) above informational level "
+                f"({', '.join(blocking)}) out of {len(findings)} total; "
+                "not definitive proof of fake code"
+            )
             severity = max_sev
         else:
             status = "OK"
-            summary = "No anti-theater heuristic findings above informational level"
+            summary = (
+                f"No anti-theater heuristic findings above informational level "
+                f"({len(findings)} informational: {histogram or 'none'})"
+            )
             severity = "info"
         tr = self.make_result(
             status=status,
@@ -456,10 +551,11 @@ class AntiTheaterTool(Tool):
             started_at=started,
             command=["builtin:veyra-anti-theater", "scan", str(context.root)],
             exit_code=0,
-            duration_seconds=0.0,
+            duration_seconds=time.perf_counter() - clock,
             stdout_path=out,
             stderr_path=err,
             findings=findings,
+            environment={"rule_histogram": histogram},
         )
         self.save_result_json(context, tr)
         return tr

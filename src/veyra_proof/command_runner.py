@@ -7,18 +7,118 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Mapping, TextIO
+from typing import Mapping, Sequence, TextIO
 
 from veyra_proof.models import CommandResult
+
+# Cargo subcommands that build the project and therefore write Cargo.lock when
+# the manifest and the lockfile disagree. Every one of these is given --locked
+# so a stale lockfile becomes an error the operator sees instead of a silent
+# rewrite of their dependency state. Subcommands are read-only by nature
+# (metadata, tree, fmt) or are cargo plugins that reject unknown flags
+# (audit, deny, geiger, llvm-cov, semver-checks), so they are left alone.
+LOCKFILE_WRITING_SUBCOMMANDS = frozenset(
+    {
+        "build",
+        "check",
+        "test",
+        "bench",
+        "run",
+        "doc",
+        "rustdoc",
+        "rustc",
+        "fix",
+        # Cargo components and plugins that forward to `cargo build` and accept
+        # --locked in the subcommand's own argument position.
+        "clippy",
+        "nextest",
+    }
+)
+
+# A flag that already decides the question; adding --locked would conflict.
+LOCK_DECIDING_FLAGS = ("--locked", "--frozen", "--offline")
+
+CARGO_EXECUTABLES = {"cargo", "cargo.exe"}
+
+
+def _cargo_argv(command: Sequence[str]) -> int | None:
+    """Index of the cargo subcommand, or None when this is not a cargo build."""
+    if not command:
+        return None
+    if Path(command[0]).name.lower() not in CARGO_EXECUTABLES:
+        return None
+    for index, part in enumerate(command[1:], start=1):
+        if part.startswith("+") or part.startswith("-"):
+            # Toolchain override (+nightly) and global flags are not the
+            # subcommand; a bare `--` here would mean a malformed invocation.
+            if part == "--":
+                return None
+            continue
+        return index
+    return None
+
+
+def apply_lock_policy(
+    command: Sequence[str],
+    *,
+    cwd: str | Path | None,
+    allow_update: bool = False,
+) -> list[str]:
+    """Add ``--locked`` to a cargo build command when a lockfile already exists.
+
+    Returns the argv to actually execute. Three cases, and no fourth:
+
+    * a Cargo.lock is present and updates were not authorized -> ``--locked``,
+      so the lockfile cannot be rewritten behind the operator's back;
+    * no Cargo.lock exists -> untouched, because creating one is not a mutation
+      of existing state and cargo has no other option;
+    * updates were authorized with --update-lockfile -> untouched, on purpose.
+
+    The flag goes immediately before the subcommand's first option so that a
+    plugin shaped like ``cargo nextest run --workspace`` keeps working.
+    """
+    argv = list(command)
+    index = _cargo_argv(argv)
+    if index is None:
+        return argv
+    subcommand = argv[index]
+    if subcommand not in LOCKFILE_WRITING_SUBCOMMANDS:
+        return argv
+    if allow_update:
+        return argv
+    if any(flag in argv for flag in LOCK_DECIDING_FLAGS):
+        return argv
+    workdir = Path(cwd).resolve() if cwd else Path.cwd()
+    if not (workdir / "Cargo.lock").is_file():
+        return argv
+    insert_at = len(argv)
+    for position in range(index + 1, len(argv)):
+        if argv[position].startswith("-"):
+            insert_at = position
+            break
+    return argv[:insert_at] + ["--locked"] + argv[insert_at:]
 
 
 class CommandRunner:
     """Execute argv lists and capture full evidence."""
 
-    def __init__(self, *, dry_run: bool = False, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        allow_lockfile_update: bool = False,
+    ) -> None:
         self.dry_run = dry_run
         self.verbose = verbose
+        self.allow_lockfile_update = allow_lockfile_update
         self.executed: list[CommandResult] = []
+
+    def preview(self, command: Sequence[str], *, cwd: str | Path | None = None) -> list[str]:
+        """The argv this runner would execute, without running anything."""
+        return apply_lock_policy(
+            command, cwd=cwd, allow_update=self.allow_lockfile_update
+        )
 
     def run(
         self,
@@ -43,7 +143,7 @@ class CommandRunner:
 
         if self.dry_run:
             result = CommandResult(
-                command=list(command),
+                command=list(self.preview(command, cwd=workdir)),
                 cwd=workdir,
                 exit_code=None,
                 stdout="",
@@ -55,9 +155,7 @@ class CommandRunner:
             self.executed.append(result)
             return result
 
-        if stream and input_text is not None:
-            raise ValueError("stream=True cannot be combined with input_text")
-
+        command = self.preview(command, cwd=workdir)
         start = time.perf_counter()
         try:
             if stream:
@@ -70,11 +168,17 @@ class CommandRunner:
                     started=start,
                 )
             else:
+                # Rust writes UTF-8; the process locale on Windows is often cp1252
+                # and a single undecodable byte killed the reader thread, which
+                # left stdout/stderr as None. The tool then reported a verdict
+                # backed by two empty logs. Decoding explicitly with a
+                # replacement keeps every verdict attached to its real output.
                 completed = subprocess.run(
                     list(command),
                     cwd=workdir,
                     capture_output=True,
-                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=timeout,
                     env=merged_env,
                     input=input_text,
@@ -154,7 +258,8 @@ class CommandRunner:
             cwd=workdir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
             shell=False,
             bufsize=1,
