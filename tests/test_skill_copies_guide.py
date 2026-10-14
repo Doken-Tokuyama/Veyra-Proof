@@ -1,12 +1,12 @@
-"""Guard for SKILL-COPIES.md, the guide to the four copies of the skill.
+"""Guard for SKILL-COPIES.md, the guide to where the skill lives.
 
 Four files with the same name can live on one machine at once — the canonical
-skill in this checkout, the fan-out copies `sync_skill.py` writes into every
-harness, the Freebuff Desktop account copy under
-`~/.config/freebuff-desktop/account-skills/`, and the published copy under
-`Veyra/skills/`. All four are built from the scripts below, so the guide is not
-prose: every path, marker, target and exit code in it is a claim about code that
-can change underneath it.
+skill in this checkout, the fan-out `sync_skill.py` installs into every harness
+(links to the canonical directory, or copies with `--copy`), the Freebuff Desktop
+account copy under `~/.config/freebuff-desktop/account-skills/`, and the published
+copy under `Veyra/skills/`. All four are built from the scripts below, so the guide
+is not prose: every path, marker, flag, target and exit code in it is a claim about
+code that can change underneath it.
 
 A guide that names a path the script no longer uses is the same defect as a status
 that contradicts the log, so it gets a test. Each assertion below fails if the code
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -124,6 +125,26 @@ class TestTheGuideDescribesTheCodeThatExists:
         for name in ("sync_skill.py", "check_skills.py", "check_account_skill.py", "pre_release.py"):
             assert name in guide, f"the guide never mentions {name}"
 
+    def test_every_flag_it_tells_you_to_pass_exists(self):
+        """A guide is a set of instructions; an invented flag is an instruction that fails.
+
+        Asked of the script's own ``--help`` rather than of a copy of the parser, so
+        a flag removed from the code fails this test instead of leaving the guide
+        telling a contributor to run something that does not exist.
+        """
+        named = set(re.findall(r"sync_skill\.py ((?:--[a-z-]+ ?)+)", _flat()))
+        flags = {flag for group in named for flag in group.split()}
+        assert flags, "the guide names no sync_skill.py flag, so there is nothing to check"
+
+        completed = subprocess.run(
+            [sys.executable, str(SYNC_SCRIPT), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+        missing = sorted(flag for flag in flags if flag not in completed.stdout)
+        assert not missing, f"the guide names flags the script does not accept: {missing}"
+
 
 class TestTheGuideKeepsItsShape:
     def test_one_table_row_per_copy_of_the_skill(self):
@@ -188,6 +209,52 @@ class TestTheGuideStaysHonest:
         )
 
 
+class TestTheGuideStatesWhatTheLinkCosts:
+    """The half of the change a reader has to be told, not left to discover.
+
+    Linking the fan-out removes drift and buys a dependency on this checkout in
+    exchange. A guide that sold the first half silently would be describing a
+    different script, so each cost is pinned to a sentence that has to survive.
+    """
+
+    def test_it_says_the_fan_out_is_linked_not_copied(self):
+        flat = _flat()
+        assert "symlink" in flat, "the guide must say what a target is now"
+        assert _sync().MODE_LINK in flat and _sync().MODE_COPY in flat, (
+            "the guide must name both modes the script implements"
+        )
+
+    def test_it_says_a_link_is_only_as_durable_as_the_checkout(self):
+        assert "only as durable as this checkout" in _flat(), (
+            "the guide must say that moving or deleting the checkout kills the targets"
+        )
+
+    def test_it_says_what_happens_without_symlink_support(self):
+        flat = _flat()
+        assert "Developer Mode" in flat, (
+            "the guide must name the platform where the fallback applies"
+        )
+        assert "falls back to a stamped copy" in flat, (
+            "the guide must say the fallback installs a copy, not that it fails"
+        )
+
+    def test_it_is_explicit_about_what_could_not_be_verified(self):
+        """A claim outside this repo has to be marked as one, not asserted."""
+        flat = _flat()
+        assert "statSync" in flat, (
+            "the guide must cite the app behaviour it relies on rather than assuming it"
+        )
+        assert "could not be checked from here" in flat, (
+            "the guide must mark the part that was not verified"
+        )
+
+    def test_it_says_the_published_installer_still_copies(self):
+        flat = _flat()
+        assert "Veyra/install.py" in flat and "still copies" in flat, (
+            "the two installers differ on purpose; the guide must not imply otherwise"
+        )
+
+
 class TestTheGuideReachesItsReaders:
     def test_the_readme_points_at_it(self):
         readme = README.read_text(encoding="utf-8")
@@ -196,8 +263,22 @@ class TestTheGuideReachesItsReaders:
         )
 
     def test_the_sdist_carries_it(self):
-        """The archive contains three of the four copies; the guide explains them."""
+        """The archive ships the guide, and the two skill copies the guide claims.
+
+        The guide tells a reader of the sdist which places exist and which of them
+they are holding. That claim is only true while `MANIFEST.in` lists both — the
+        canonical skill and the published copy — so both are asserted against the
+        manifest rather than assumed, and the absence of a harness fan-out is stated
+        in the guide as the reason there is nothing to link in that archive.
+        """
         manifest = MANIFEST.read_text(encoding="utf-8")
         assert GUIDE.name in manifest, (
-            "the guide must ship in the sdist, which carries copies of the skill"
+            "the guide must ship in the sdist, which carries two copies of the skill"
+        )
+        for copy in (_sync().CANONICAL_REL.as_posix(), PUBLISHED_SKILL):
+            assert copy in manifest, (
+                f"the guide says the sdist carries {copy}, and MANIFEST.in disagrees"
+            )
+        assert "no harness fan-out" in _flat(), (
+            "the guide must say why the archive carries no fan-out"
         )

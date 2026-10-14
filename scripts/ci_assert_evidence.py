@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -290,12 +291,73 @@ def verify(
     return problems, confirmed
 
 
+def measure(directory: Path, process_exit_code: int, target: Path) -> dict:
+    """What this run actually measured, read out of the evidence it just verified.
+
+    Read from the run's own artefacts rather than from this script's summary lines, so
+    that a release note carrying one of these numbers is carrying something the auditor
+    wrote. Two files, because they answer different questions: ``report.json`` holds the
+    decision, the per-tool results and the workspace that was audited, while
+    ``manifest.json`` holds the profile it ran under and the **version of the auditor
+    that produced it** — which is exactly the claim a release makes about its evidence.
+    """
+    report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
+    decision = report.get("decision", {})
+    results = report.get("results", [])
+
+    manifest: dict = {}
+    try:
+        loaded = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+        manifest = loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError):
+        pass
+
+    workspace = report.get("workspace") or {}
+    return {
+        "profile": manifest.get("profile"),
+        "auditor_version": manifest.get("version"),
+        "platform": manifest.get("platform"),
+        "target": str(workspace.get("workspace_root") or target),
+        "verdict": decision.get("decision"),
+        "exit_code": decision.get("exit_code", process_exit_code),
+        "evidence": str(directory),
+        "tools_ok": sorted(
+            entry.get("tool_id", "?") for entry in results if entry.get("status") == "OK"
+        ),
+        "tools_not_ok": {
+            entry.get("tool_id", "?"): entry.get("status")
+            for entry in results
+            if entry.get("status") != "OK"
+        },
+    }
+
+
+def write_report(path: Path, facts: dict, ok: bool) -> None:
+    """State the measurement as JSON, so no release note restates it by hand."""
+    payload = {"tool": "ci_assert_evidence", "ok": ok, "facts": facts}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        os.replace(temporary, path)
+    except OSError as error:
+        print(f"note: could not write the report to {path}: {error}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run a real audit and verify the evidence it leaves behind."
     )
     parser.add_argument("target", nargs="?", default=".", help="Cargo workspace root")
     parser.add_argument("--profile", default="quick", help="audit profile to run")
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Write what was measured, as JSON, to this path (used by the gate).",
+    )
     args = parser.parse_args(argv)
 
     target = Path(args.target).resolve()
@@ -335,6 +397,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  FAIL  {problem}")
         print(f"\n{len(problems)} problem(s): the run did not back up its own claim")
         return 1
+
+    if args.report is not None:
+        write_report(args.report, measure(directory, completed.returncode, target), ok=True)
 
     print("\nevidence is consistent with the verdict")
     return 0

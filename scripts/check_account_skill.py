@@ -12,7 +12,7 @@ local skills in ``~/.claude/skills`` and ``~/.agents/skills`` and adds only the
 names that are *missing* from the Cloud snapshot. An already-present name is
 never re-imported, so a skill the repo improves after its first import keeps the
 older text in Cloud indefinitely — while ``sync_skill.py --check`` stays green,
-because every harness copy matches.
+because every harness target already reads the canonical skill.
 
 Two things are reported, because they fail differently:
 

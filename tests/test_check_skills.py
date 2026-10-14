@@ -153,11 +153,21 @@ def test_every_copy_current_passes(combined, tmp_path, capsys) -> None:
     assert "WARN" not in out
 
 
-def test_harness_drift_fails_and_names_the_repair(combined, tmp_path, capsys) -> None:
-    """Drift this repository can fix is the one thing that fails."""
+def test_a_harness_target_that_is_not_the_canonical_skill_fails_and_names_the_repair(
+    combined, tmp_path, capsys
+) -> None:
+    """What this repository can fix is the one thing that fails.
+
+    This used to edit the canonical skill and expect the fan-out to fall behind,
+    which is no longer possible: the harness target *is* the canonical directory.
+    The failure worth pinning is the other direction — a target that is not the
+    canonical skill at all — so the link is replaced by a real copy here.
+    """
     root, home, store = _sandbox(tmp_path)
-    skill = root / CANONICAL_REL / "SKILL.md"
-    skill.write_text(skill.read_text(encoding="utf-8") + "\nmore\n", encoding="utf-8")
+    target = home / ".cursor" / "skills" / SKILL_NAME
+    target.unlink()
+    target.mkdir()
+    (target / "SKILL.md").write_text("# an older copy\n", encoding="utf-8")
     _write_store(store, _canonical(root))
 
     code, out = _run(combined, root, home, store, capsys)
@@ -183,7 +193,7 @@ def test_account_drift_warns_but_does_not_fail(combined, tmp_path, capsys) -> No
     code, out = _run(combined, root, home, store, capsys)
 
     assert code == 0, "the account copy is machine-local; it must not fail the command"
-    assert "PASS  every harness copy matches" in out
+    assert "PASS  every harness target is the canonical skill" in out
     assert "WARN" in out
     assert "skill manager" in out
 
@@ -206,12 +216,14 @@ def test_both_reports_are_printed_even_when_the_first_fails(
 ) -> None:
     """Nothing is hidden behind an early exit: the point is not to forget one."""
     root, home, store = _sandbox(tmp_path)
-    skill = root / CANONICAL_REL / "SKILL.md"
-    skill.write_text(skill.read_text(encoding="utf-8") + "\nmore\n", encoding="utf-8")
+    target = home / ".cursor" / "skills" / SKILL_NAME
+    target.unlink()
+    target.mkdir()
+    (target / "SKILL.md").write_text("# an older copy\n", encoding="utf-8")
 
     _, out = _run(combined, root, home, store, capsys)
 
-    assert "=== harness copies" in out
+    assert "=== harness fan-out" in out
     assert "=== account copy" in out
     assert "=== verdict" in out
 
@@ -225,6 +237,7 @@ def test_the_reports_name_the_commands_they_ran(combined, tmp_path, capsys) -> N
 
     assert "python3 scripts/sync_skill.py --check" in out
     assert "python3 scripts/check_account_skill.py" in out
+    assert "mode       link" in out, "the fan-out report must say how targets are installed"
     assert str(store) in out
 
 

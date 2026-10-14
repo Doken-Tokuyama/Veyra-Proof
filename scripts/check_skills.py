@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""One command that checks every copy of the Veyra skill.
+"""One command that checks every copy anyone might be reading.
 
-Three copies exist, and they fail differently, which is why this was two
-commands a maintainer had to remember separately:
+Three places hold this skill, and they fail differently, which is why this was
+two commands a maintainer had to remember separately:
 
 * the **canonical** skill in this repo, under ``.cursor/skills/veyra-proof/`` —
-  the source every other copy is compared against;
-* the **harness** copies ``sync_skill.py`` fans out to every agent harness;
+  the source, and the only copy anybody edits;
+* the **harness fan-out** ``sync_skill.py`` installs into every agent harness,
+  which is a link to that canonical directory by default — so the old question
+  "do the copies still agree?" has become "is every target that link?", and the
+  answer is checked by reading the link, not by hashing a duplicate;
 * the **account** copy Freebuff Desktop keeps, which belongs to that app and is
   only ever reported.
 
 This runs both checks, prints both reports, and states one verdict. The policy is
 the one CI applies, for the reason CI applies it:
 
-* a fan-out copy that drifted is repairable here, so it **fails** — run
-  ``sync_skill.py``;
+* a fan-out target that is not the canonical skill is repairable here, so it
+  **fails** — run ``sync_skill.py``;
 * the account copy is a machine-local cache this repository cannot repair, so it
   **warns and passes**. Failing would mean a contributor whose Cloud cache is
   stale could never get a green check, which is how a check gets ignored;
@@ -31,8 +34,8 @@ Usage::
     python3 scripts/check_skills.py --root /path/to/checkout
     python3 scripts/check_skills.py --home /tmp/fake-home --store /tmp/fake-store
 
-Exit 0 when nothing repairable drifted, 1 when the harness copies drifted, 2
-when a check could not run.
+Exit 0 when no target needs repair, 1 when a harness target is not the canonical
+skill, 2 when a check could not run.
 """
 
 from __future__ import annotations
@@ -59,7 +62,7 @@ class Outcome:
 
     @property
     def could_not_run(self) -> bool:
-        """2 or worse means the checker itself is broken, not a stale copy."""
+        """2 or worse means the checker itself is broken, not a stale target."""
         return self.status >= 2
 
     @property
@@ -84,11 +87,20 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     parser.add_argument("--root", type=Path, default=None, help="Checkout to check.")
+    # `--copy` exists because a machine can legitimately be running the copy mode:
+    # the fallback where symlinks are unavailable, or a deliberate choice. Without
+    # it, the one command a maintainer runs would call a correct install broken,
+    # which is how a check starts getting ignored.
+    parser.add_argument(
+        "--copy",
+        action="store_true",
+        help="Expect copies, not links, when checking the fan-out.",
+    )
     parser.add_argument("--home", type=Path, default=None, help="Home for the fan-out.")
     parser.add_argument("--store", type=Path, default=None, help="Account store to inspect.")
     args = parser.parse_args(argv)
 
-    fanout_args = ["--check"]
+    fanout_args = ["--check"] + (["--copy"] if args.copy else [])
     account_args: list[str] = []
     if args.root is not None:
         fanout_args += ["--root", str(args.root)]
@@ -101,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     fanout = run(FANOUT, fanout_args)
     account = run(ACCOUNT, account_args)
 
-    print("=== harness copies")
+    print("=== harness fan-out")
     print(f"$ python3 scripts/sync_skill.py {' '.join(fanout_args)}")
     print(fanout.output)
     print()
@@ -116,20 +128,22 @@ def main(argv: list[str] | None = None) -> int:
         for name, outcome in (("sync_skill.py", fanout), ("check_account_skill.py", account))
         if outcome.could_not_run
     ]
+    # The two checks are named in the verdict rather than described, because the
+    # reader's next move is to run one of them.
     if broken:
         print(f"  FAIL  {', '.join(broken)} could not run; see the report above.")
-        print("        A checker that cannot run is a defect here, not a stale copy.")
+        print("        A checker that cannot run is a defect here, not a stale target.")
         return 2
 
     if fanout.drifted:
-        print("  FAIL  the harness copies no longer match the canonical skill.")
+        print("  FAIL  a harness target is not the canonical skill.")
         print(f"        Repair: {FIXABLE}")
         if account.drifted:
             print("  WARN  the account copy lags too, and this command cannot repair it.")
             print("        Remove the synced entry in the app's skill manager.")
         return 1
 
-    print("  PASS  every harness copy matches the canonical skill.")
+    print("  PASS  every harness target is the canonical skill.")
     if account.drifted:
         print()
         print("  WARN  the Freebuff Desktop account copy is older than the canonical")

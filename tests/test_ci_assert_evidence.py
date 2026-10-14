@@ -82,6 +82,69 @@ def test_well_formed_evidence_passes(checker, tmp_path) -> None:
     assert confirmed == ["rustfmt OK exit 0"]
 
 
+class TestTheMeasurement:
+    def test_what_a_release_note_may_say_comes_out_of_the_artefacts(self, checker, tmp_path) -> None:
+        """The gate records these facts, so they are asserted where they are read.
+
+        `target`, `profile` and the auditor version are the three that were wrong or
+        missing first: the notes printed the evidence directory where the workspace
+        belongs, and `--profile None`, because one lives in `report.json` and the other
+        two in `manifest.json`.
+        """
+        directory = _evidence(tmp_path)
+        report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
+        report["workspace"] = {"workspace_root": "/repo/fixtures/demo_crate"}
+        (directory / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        (directory / "manifest.json").write_text(
+            json.dumps({"version": "0.4.9", "profile": "standard"}), encoding="utf-8"
+        )
+
+        facts = checker.measure(directory, 0, Path("/somewhere/else"))
+
+        assert facts["verdict"] == "ACCEPTED"
+        assert facts["exit_code"] == 0
+        assert facts["target"] == "/repo/fixtures/demo_crate", "the workspace, not the report"
+        assert facts["profile"] == "standard"
+        assert facts["auditor_version"] == "0.4.9"
+        assert facts["evidence"] == str(directory)
+        assert facts["tools_ok"] == ["rustfmt"]
+        assert facts["tools_not_ok"] == {}
+
+    def test_a_missing_manifest_costs_the_manifest_facts_only(self, checker, tmp_path) -> None:
+        """An absent file is absent facts, never a plausible default."""
+        directory = _evidence(tmp_path)
+        (directory / "manifest.json").unlink()
+
+        facts = checker.measure(directory, 0, Path("/somewhere"))
+
+        assert facts["profile"] is None
+        assert facts["auditor_version"] is None
+        assert facts["target"] == "/somewhere", "it falls back to the target it was given"
+        assert facts["verdict"] == "ACCEPTED"
+
+    def test_the_report_names_the_tool_that_wrote_it(self, checker, tmp_path) -> None:
+        """The gate keys the record by step, so each file says who measured what."""
+        path = tmp_path / "reports" / "evidence.json"
+
+        checker.write_report(path, {"verdict": "ACCEPTED"}, ok=True)
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload == {
+            "tool": "ci_assert_evidence",
+            "ok": True,
+            "facts": {"verdict": "ACCEPTED"},
+        }
+
+    def test_an_unwritable_report_is_reported_not_raised(self, checker, tmp_path, capsys) -> None:
+        """It costs a release-note row, not the audit that just passed."""
+        blocker = tmp_path / "file"
+        blocker.write_text("", encoding="utf-8")
+
+        checker.write_report(blocker / "report.json", {}, ok=True)
+
+        assert "could not write the report" in capsys.readouterr().err
+
+
 def test_a_silently_passing_tool_still_needs_its_log_on_disk(checker, tmp_path) -> None:
     directory = _evidence(tmp_path)
     (directory / "tools" / "rustfmt" / "stdout.log").unlink()

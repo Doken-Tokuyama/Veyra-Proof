@@ -263,19 +263,24 @@ The demo fixture ships a real CLI (`tests/fixtures/demo_crate/src/main.rs`) wire
 
 Canonical skill (model-invoked): `.cursor/skills/veyra-proof/`. It follows the open `SKILL.md` standard, so the same two files work across harnesses.
 
-Four copies of this skill end up on a normal machine — this canonical one, the harness fan-out, the Freebuff Desktop account copy and the published copy — and only one of them is yours to edit. [SKILL-COPIES.md](SKILL-COPIES.md) says which one you are looking at, who owns the write, and what puts it right.
+Four places hold this skill on a normal machine — the canonical directory, the harness fan-out, the Freebuff Desktop account copy and the published copy — and **one of them is the only copy anybody edits**. [SKILL-COPIES.md](SKILL-COPIES.md) says which one you are looking at, who owns the write, what puts it right, and what the link mode costs.
 
 Fan it out to every harness installed on this machine:
 
 ```bash
-python3 scripts/sync_skill.py                # write missing or stale copies
-python3 scripts/sync_skill.py --check        # report drift, change nothing (exit 1 if stale)
+python3 scripts/sync_skill.py                # link every harness target to the canonical skill
+python3 scripts/sync_skill.py --check        # report, change nothing (exit 1 if a target needs repair)
+python3 scripts/sync_skill.py --copy         # install real copies instead of links
 python3 scripts/sync_skill.py --project      # also create project-scoped directories
-python3 scripts/sync_skill.py --prune        # report copies left by an older name (dry run)
+python3 scripts/sync_skill.py --prune        # install, then report targets left by an older name
 python3 scripts/sync_skill.py --prune --apply  # ...and delete them
 ```
 
-Renaming the skill would otherwise leave a live copy behind in every harness, still declaring the old name and still triggering — `--check` stays green throughout, because it only inspects the name in use. Every copy the script writes is stamped with a `.veyra-skill-sync` marker whose filename never tracks the skill name, so the stamp survives the rename that made the copy stale; `--prune` deletes only directories carrying it. A harness skills directory is shared with every other skill you have installed, so anything without the stamp is left alone. Run `--prune` after a rename.
+A harness target is a **symlink to `.cursor/skills/veyra-proof`**, not a copy of it. There is therefore no drift to detect and no sync to remember: an edit is live in every harness the moment it is saved, which is what makes "the canonical skill is the only copy anyone edits" a structural fact rather than a habit. `--check` reads the link, so what it reports is whether the harness is pointed at this checkout.
+
+**What the link costs, stated here as well as in the guide.** A link is only as durable as the checkout: move or delete this repository and every harness target goes dead, where a copy would have survived. A filesystem that cannot hold a symlink — Windows without Developer Mode, a home on FAT or some SMB mounts — gets a stamped copy instead, and `sync_skill.py` says so in the `mode` line rather than implying otherwise. The two local loaders in the shipped Freebuff Desktop app read a linked skill directory correctly (both use `statSync`, which follows links), but its Cloud-import path could not be checked from here, so a link in `~/.claude/skills` or `~/.agents/skills` is a change you may want to make with `--copy` held back for those two. Copies are the mode that can drift; they carry the `.veyra-skill-sync` marker to say they were installed on purpose, and the default `--check` accepts a marked copy as deliberate instead of calling it broken.
+
+The `--copy` fallback also keeps the old marker rule: a copy's stamp is what lets `--prune` delete it after a rename, and what lets a machine that runs copies pass the check. Renaming the skill would otherwise leave a live target behind in every harness, still declaring the old name and still triggering — `--check` stays green throughout, because it only inspects the name in use. A harness skills directory is shared with every other skill you have installed, so a directory that is not ours is reported and never replaced, and `--prune` deletes only what it can prove it owns: a directory carrying the stamp, or a link whose target is inside this checkout. Run `--prune` after a rename.
 
 | Harness | Global | Project |
 |---|---|---|
@@ -334,7 +339,7 @@ Triggers include: install veyra, auditar Rust, audit a Cargo workspace, wire vey
 - Keep the frontmatter `metadata.version` equal to `pyproject.toml`'s version, and bump all three together (`pyproject.toml`, `src/veyra_proof/__init__.py`, the skill). `tests/test_docs_match_code.py` fails if the skill names a release that is not the one shipping.
 - Stay harness-neutral: no absolute machine paths, no vendor CLI names, no editor-only commands.
 - If you adopt [SkillOpt](https://github.com/microsoft/SkillOpt), move the hard rules into its `SLOW_UPDATE` region, which normal edit patches cannot modify.
-- After any edit: `python3 -m pytest` then `python3 scripts/check_skills.py`. If the harness copies drifted, repair them with `python3 scripts/sync_skill.py`.
+- After any edit: `python3 -m pytest` then `python3 scripts/check_skills.py`. `sync_skill.py` is still worth running after a checkpoint is created or moved, or after a harness is installed: it installs the link, and re-points one that has gone stale. There is nothing to repair after an edit — with links in place the harnesses already read what you just changed.
 - After renaming the skill or the folder: `python3 scripts/sync_skill.py` then `python3 scripts/sync_skill.py --prune --apply`.
 - Before tagging a release: `python3 scripts/pre_release.py --tag v0.4.3 --title "..."`. That is the whole checklist in one command; see [The pre-release checklist](#the-pre-release-checklist) for the ways it refuses.
 
@@ -385,23 +390,38 @@ The sdist carries the agent skill, the fan-out script, the CI workflows and the 
 
 ## The pre-release checklist
 
-One command runs the whole checklist and cuts the tag:
+One command runs the whole checklist, writes the release notes and cuts the tag:
 
 ```bash
 python -m pip install --upgrade build twine   # the build step needs both
 python scripts/pre_release.py --tag v0.4.3 --title "one line the release can be read by"
 ```
 
-Four steps, all reported whether or not an earlier one failed, so one pass tells you everything that is wrong:
+Seven steps, all reported whether or not an earlier one failed, so one pass tells you everything that is wrong:
 
 | Step | What it proves |
 |---|---|
-| `tests` | The suite, which carries the copy-parity, version and docs guards |
-| `copies` | Every harness copy of the skill still matches the canonical one |
+| `tests` | The suite, which carries the fan-out, version and docs guards |
+| `platforms` | That same suite, on the commit being tagged, as CI actually ran it on Linux, macOS and Windows |
+| `copies` | Every harness target is the canonical skill |
 | `build` | An sdist and a wheel, then `twine check` on **this version's** artefacts only |
+| `wheel` | That wheel, installed into a throwaway venv, reporting the version it was built as |
 | `evidence` | A real audit whose on-disk evidence matches its own verdict |
+| `notes` | The release notes, generated from `changes.md` and the numbers these steps measured |
+
+The `wheel` step exists because source files agreeing with each other is not the claim a release makes. 0.4.1 shipped a wheel whose `__version__` still read `0.3.0` while the distribution said 0.4.1: `veyra --version` answered `veyra 0.3.0`, and every `manifest.json` that wheel wrote signed its evidence with the wrong version. `scripts/check_wheel_version.py` installs the wheel into a temporary virtual environment and reads the version back from four independent places — the installed metadata, `veyra_proof.__version__`, the `veyra` console script the wheel declared, and `python -m veyra_proof` — with `PYTHONPATH` scrubbed and the import required to resolve inside the venv, so an answer taken from this checkout's `src/` cannot pass for an answer from the artefact. It is a real `pip install`, so a wheel with dependencies has them resolved (`--no-deps` exists for an offline machine); the environment is removed on success and left in place, with its path printed, when something disagrees.
+
+The `platforms` step exists because one machine cannot answer the question a release asks. v0.4.3 was tagged and published from this checkout while both of its Windows jobs were already failing: CI reported it only afterwards, so the fix had to ship as 0.4.4 rather than 0.4.3 being green. `scripts/check_platforms.py` reads the CI run for **the exact commit being tagged** and requires every job of it to have concluded `success` and every platform named in `REQUIRED_PLATFORMS` to have a successful job of its own — cancelled and skipped are not passes either. A commit with no run is refused with the instruction that fixes it (push it, let CI finish, run the gate again), and if this machine cannot ask GitHub at all — no `gh`, no credentials, no network — the step exits 2 and the gate refuses the tag: an unverifiable release is left unproven rather than assumed green. Nothing is mutated to make it pass. `tests/test_check_platforms.py` holds `REQUIRED_PLATFORMS` against the matrix in `.github/workflows/ci.yml`, so dropping a platform from CI fails the suite instead of quietly shrinking what a release claims.
+
+**No number in a release is typed by hand.** The first version of the v0.4.4 notes carried a table reading `351 passed`, an evidence directory named by its timestamp and a count of tools that came back `OK` — each of them copied out of a terminal, and each of them right only for as long as nobody rebuilt anything; the v0.4.1 draft is the other shape of the same problem, opening with a note that its headline counts no longer matched the suite. So the steps that can measure something now state it as JSON (`--report`) instead of only printing it: pytest's counts come from the JUnit XML it writes, and `check_platforms.py`, `check_wheel_version.py` and `ci_assert_evidence.py` each write the facts they observed — including the auditor version that produced the evidence. The gate records those facts in `.git/veyra-pre-release.json` beside the resume entries, and the `notes` step turns them into `.freebuff/release-notes-<version>.md`, the file `gh release create --notes-file` needs. A step whose measurement is missing gets **no row** in the table plus a `## Not measured` line naming it: an absent row is a visible limitation, a plausible number would be a lie. `scripts/release_notes.py` refuses outright when the record does not cover the tree being released — the fingerprint is the gate's own function, looked up rather than reimplemented — so notes cannot be regenerated from measurements taken on a different commit. `notes` is deferred to run last, since it reads what the other steps measured; it is still a step, so a run that cannot generate them does not tag.
+
+`--title TEXT` is the release headline: it becomes the tag annotation (`NAME — TEXT`) and the title of the generated notes. It no longer requires `--tag`, because the notes are written on every passing run — so a release can be prepared, measured and read before anybody cuts the tag.
 
 `--tag NAME` creates the tag only after every step has passed, as an **annotated** tag reading `NAME — TITLE` (`--title`), which is the form every existing tag in this repository uses and the same string GitHub shows as the release name; `git tag NAME` alone would make a lightweight tag, the one tag in the history that `git describe` reduces to a bare hash. It refuses several ways round: when any step failed; when `--skip` was used, because a tag gated by a partial checklist is not gated; when `NAME` is not `v` plus the version `pyproject.toml` declares; when the tag already exists; and when the tracked skill files are uncommitted — that last one matters because `publish.yml` builds the sdist from the tagged commit, so a working tree whose copies all agree locally still says nothing about what ships. `git status` alone cannot see that: it hides ignored paths, so a skill file matched by an ignore rule reads as clean while git would never commit it, so tracking is checked explicitly.
+
+**It resumes, so an interruption does not cost you the whole run.** Every step that passes is recorded against a fingerprint of the tree — `HEAD` plus the contents of the tracked and untracked-but-unignored files — in `.git/veyra-pre-release.json`, along with how long it took and **what it measured**, so a resumed run keeps the measurement instead of re-taking it and the notes describe a real run rather than a partial one. A run that dies after the tag starts the next one with `PASS (resumed)` for what this exact tree already verified and goes straight on: measured on this checkout, the full checklist took 22.4 s, 29.4 s and 35.4 s on three runs and the resumed runs took 0.14 s, 0.15 s and 0.13 s. Any change to the tree invalidates every record, a record made for another version is ignored, an unreadable ledger is treated as empty, and a failure is never recorded at all — so resuming can only ever skip a success, never inherit one. A tag this gate created on an earlier attempt is recognised as its own instead of refused; a tag that differs from it — lightweight, a different annotation, another commit — is still refused, with the difference named. Delete the ledger file to force the full run. It fingerprints the tree, not the toolchain: switching `rustc`, `clippy` or `cargo` does not invalidate a record, so a resumed run inherits the toolchain the recorded pass was made with — delete the ledger after a toolchain upgrade. The ledger path comes from `git rev-parse --absolute-git-dir` rather than being assumed to be `.git/`, so the gate also works from a linked worktree, where `.git` is a file; if the ledger cannot be written the run says so and continues, because a cache that can end a release is worse than the resume it saves.
+
+When a tag exists, the run ends by saying what is left and what it will not do: whether this commit is on `origin/main`, the `git push` for the tag, and the `gh release create` for the release body taken from `.freebuff/release-notes-<version>.md` — the file the `notes` step just generated. That directory is ignored by git, deliberately: the notes are built from the record of one run, and committing them would give a later run a stale body to publish by accident. Publishing the release is what triggers `publish.yml` and uploads to PyPI, so the gate stops at the tag — that part cannot be undone, and it is not something a checklist should do behind your back.
 
 **The limit, stated plainly: git has no pre-tag hook.** `python scripts/pre_release.py` (no `--tag`) runs the same checklist and reports; anyone who runs `git tag` directly bypasses all of it. This gate is real only for people who tag through it.
 

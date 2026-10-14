@@ -1,3 +1,102 @@
+## What changed in v0.5.0
+
+- **The release notes are generated, so no number in a release is typed by hand.** 0.4.4's own notes
+  are the worked example of the alternative: a table reading `351 passed`, an evidence directory named
+  by its timestamp and a count of tools that came back `OK`, each copied out of a terminal and each
+  right only for as long as nobody rebuilt anything; 0.4.1's draft is the other shape of the same
+  problem, opening by admitting its headline counts no longer matched the suite. The steps that can
+  measure something now state it as JSON through `--report` — pytest's counts from the JUnit XML it
+  writes, `check_platforms.py` the commit and its per-platform jobs, `check_wheel_version.py` the wheel
+  and the four places that answered, `ci_assert_evidence.py` the verdict, the workspace, the tools and
+  the **version of the auditor that produced the evidence** — and the gate records those facts in
+  `.git/veyra-pre-release.json` beside the resume entries, reusing them for a resumed step because
+  re-measuring would be a different run and dropping them would leave the notes blank. The new `notes`
+  step turns them into `.freebuff/release-notes-<version>.md`, the file `gh release create
+  --notes-file` needs; it runs last because it reads what the others measured, and it is a step, so a
+  run that cannot generate the notes does not tag. `scripts/release_notes.py` refuses when the record
+  does not cover the tree being released — the fingerprint is the gate's own function, looked up
+  rather than reimplemented — and a measurement that is missing gets no row and a `## Not measured`
+  line naming it: an absent row is a visible limitation, a plausible number would be a lie.
+- **Two defects of that generator, found by running it rather than each other.** It looked its facts
+  up by tool name while the record is keyed by checklist step, so it wrote "nothing was measured"
+  beside a record holding eight CI jobs and four wheel confirmations — a wrong answer where a
+  refusal was called for; and it ran after a failing step, leaving notes that described a run that
+  did not happen beside the failure. It also printed the evidence directory where the audit's
+  workspace belongs, a command line nobody could run. All three are fixed and pinned by tests.
+- **The pre-release gate resumes an interrupted release.** A step that passes is recorded in
+  `.git/veyra-pre-release.json` against a fingerprint of the tree — `HEAD` plus the contents of the
+  tracked and untracked-but-unignored files — and a later run reports it as `PASS (resumed)` instead
+  of running it again. Measured on this checkout (three runs each): the full checklist took 22.4 s,
+  29.4 s and 35.4 s, the resumed runs 0.14 s, 0.15 s and 0.13 s. Only passes are ever stored, so resuming can skip a success but cannot inherit one; a
+  change to the tree invalidates every record, a record made for another version is ignored, and an
+  unreadable ledger is treated as empty.
+- **A tag this gate created on an earlier attempt is resumed rather than refused.** It used to
+  refuse with `already exists`, which is what forced a releaser to replay the whole checklist by
+  hand after dying between the tag and the release. A tag that differs from the one this release
+  would create — lightweight, another annotation, another commit — is still refused, and the
+  refusal now names which of the three it is.
+- **The run ends by saying what is left.** With `--tag`, the gate prints the release state:
+  whether the commit is on `origin/main`, the `git push` for the tag, and the `gh release create`
+  for the notes file in `.freebuff/`, with the reason it stops there — publishing the release is
+  what uploads to PyPI, which cannot be undone.
+- **The gate refuses a release the other platforms have not passed.** One machine cannot answer the
+  question a release asks: 0.4.3 was tagged and published from this checkout while both of its
+  Windows jobs were already failing, and CI only said so afterwards — so the fix shipped as 0.4.4
+  instead of 0.4.3 being green. The new `platforms` step (`scripts/check_platforms.py`) reads the CI
+  run for the exact commit being tagged and requires every job of it to have concluded `success` and
+  every platform in `REQUIRED_PLATFORMS` to have a successful job of its own; cancelled and skipped
+  are not passes either. A commit with no run is refused with the instruction that fixes it (push,
+  wait for CI, run the gate again), and a machine that cannot ask GitHub at all exits 2 — the gate
+  treats that as a refusal, so an unverifiable release is left unproven rather than assumed green.
+  Verified against real history: the v0.4.3 commit `d4a4092` is refused today, naming both Windows
+  jobs and their URLs, and the current `main` passes with 8 successful jobs across Linux, macOS and
+  Windows on Python 3.10 and 3.13. `REQUIRED_PLATFORMS` and the matrix in `.github/workflows/ci.yml`
+  are held together by a test, so dropping a platform from CI fails the suite instead of quietly
+  shrinking what a release claims.
+- **The gate runs from a linked worktree.** Found by pointing the gate at another commit through
+  `git worktree add`: there `.git` is a *file*, so the resume ledger's path was unmakeable, `mkdir`
+  raised `FileExistsError`, and the gate died with a traceback before running a single step. The path
+  now comes from `git rev-parse --absolute-git-dir`. The write is also no longer able to end a run — a
+  ledger that cannot be written costs a resume and is reported, not a release.
+- **The release gate has a fifth step, and it asks the artefact instead of the source.**
+  `scripts/check_wheel_version.py` installs the wheel the `build` step just wrote into a
+  throwaway virtual environment and reads its version back from four independent places: the
+  installed metadata, `veyra_proof.__version__`, the `veyra` console script the wheel declares,
+  and `python -m veyra_proof`. All four must equal what `pyproject.toml` declares, and the import
+  must resolve inside the venv — `PYTHONPATH` and `PYTHONHOME` are scrubbed, because a version
+  read out of a source tree is not a version read out of a wheel. The step exists because the
+  existing guards compare *source files*: 0.4.1 shipped a wheel whose `__version__` still read
+  `0.3.0` while the distribution said 0.4.1, so `veyra --version` lied and every `manifest.json`
+  that wheel wrote signed its evidence with the wrong version. Reproduced against the real 0.4.4
+  wheel with a doctored `__init__.py`: three failures, both values named. Two defects found while
+  building it are fixed here rather than worked around — the venv test that compared an unresolved
+  macOS `/var` path against `/private/var` and so failed on a *correct* wheel, and `pip install`
+  reporting "Requirement already satisfied" for a same-version wheel, which meant a re-run could
+  confirm the previous install instead of the freshly built artefact (`--force-reinstall` now
+  makes the answer be about this wheel). The environment is temporary, removed on success, and
+  left standing with its path printed when something disagrees.
+- **The harness fan-out is a symlink to the canonical skill, not a copy of it.**
+  `scripts/sync_skill.py` installs every detected harness target as a link to
+  `.cursor/skills/veyra-proof`, so the canonical directory is now the only copy anybody edits and the
+  question "do the copies still agree?" has no answer because it has no question. `--check` reads the
+  link (missing, pointing elsewhere, or dangling → exit 1) instead of hashing a duplicate, and a
+  target that is a real directory holding a file this skill does not ship is refused rather than
+  replaced. `--copy` keeps the old mode for a machine that cannot hold a symlink — Windows without
+  Developer Mode, FAT, some SMB mounts — where the script falls back on its own and says so in a new
+  `mode` line; those copies keep the `.veyra-skill-sync` stamp, which is what tells a later run the
+  copy was installed on purpose instead of calling it a duplicate. `--prune` now owns two shapes: a
+  stamped directory, or a link whose target is inside this checkout, which is what makes the link a
+  rename leaves dangling visible at all (a dead link is not `is_dir()`).
+- **The honesty half, in `SKILL-COPIES.md` and the README.** A link is only as durable as the
+  checkout — move or delete this repository and every harness target goes dead, where a copy would
+  have survived; the fallback mode is the one that can drift, and `--check` accepts a copy only when
+  it carries the marker that says a human chose copies. The two local skill loaders in the shipped
+  Freebuff Desktop app resolve a linked directory (`statSync`), which is cited in the guide; its
+  Cloud-import path could not be checked from here and is marked as unchecked, with
+  `sync_skill.py --copy` named as the conservative choice for `~/.claude/skills` and
+  `~/.agents/skills`. `Veyra/install.py` still copies on purpose, because the published repo is
+  cloned by strangers who may delete the clone.
+
 ## What changed in v0.4.4
 
 A patch release fixing two Windows-only defects that v0.4.3's CI run exposed, plus the

@@ -176,6 +176,31 @@ def _load_sync():
     return module
 
 
+def _links_supported() -> bool:
+    """Ask the code under test, once, whether this filesystem can hold a symlink.
+
+    Windows without Developer Mode cannot, and neither can a home on FAT or some
+    SMB mounts. The link behaviour is then unreachable by design — the script
+    falls back to a copy and says so — so those tests are skipped here rather than
+    left to fail on a platform where the feature is not available to test. The
+    fallback itself is driven directly by
+    :func:`test_a_machine_without_symlinks_falls_back_to_a_copy_and_says_so`,
+    which runs everywhere.
+    """
+    spec = importlib.util.spec_from_file_location("sync_skill_probe", SYNC_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.links_supported()
+
+
+needs_links = pytest.mark.skipif(
+    not _links_supported(),
+    reason="this filesystem cannot create symlinks, so link mode installs copies",
+)
+
+
 @pytest.fixture()
 def sync(tmp_path, monkeypatch):
     """The sync module, with its audit log redirected into the tmp tree."""
@@ -337,7 +362,17 @@ def test_the_report_and_the_guide_name_the_same_owners(sync) -> None:
     assert "Freebuff Desktop app" in guide
 
 
-def test_sync_propagates_edits_to_every_detected_harness(sync, tmp_path) -> None:
+@needs_links
+def test_an_edit_is_live_in_every_harness_without_a_sync(sync, tmp_path) -> None:
+    """The property the links buy, and the reason the old drift test is gone.
+
+    This used to write an edit into canonical, watch `--check` fail, and then run
+    the sync to repair three copies. That sequence cannot happen now: a target IS
+    the canonical directory, so the edit is live everywhere the moment it is
+    saved, and there is no window in which a harness reads the older text. The
+    assertion below is therefore stronger than the one it replaces — the copy
+    mode still drifts, and `test_copy_mode_still_detects_drift` drives that path.
+    """
     root, home, argv = _sandbox(tmp_path)
     canonical = _seed_skill(root)
     for home_dir in (".cursor", ".claude", ".codex"):
@@ -347,14 +382,197 @@ def test_sync_propagates_edits_to_every_detected_harness(sync, tmp_path) -> None
 
     v2 = "---\nname: veyra-proof\n---\n# v2\n"
     (canonical / "SKILL.md").write_text(v2, encoding="utf-8")
-    assert sync.main(argv + ["--check"]) == 1
-    assert sync.main(argv) == 0
-    assert sync.main(argv + ["--check"]) == 0
+
+    assert sync.main(argv + ["--check"]) == 0, "a live edit is not drift"
 
     for home_dir in (".cursor", ".claude", ".codex"):
-        copied = home / home_dir / "skills" / "veyra-proof"
-        assert (copied / "SKILL.md").read_text(encoding="utf-8") == v2
-        assert (copied / "reference.md").is_file()
+        target = home / home_dir / "skills" / "veyra-proof"
+        assert target.is_symlink(), f"{target} is a copy, not a link"
+        assert (target / "SKILL.md").read_text(encoding="utf-8") == v2
+        assert (target / "reference.md").is_file()
+
+
+def test_copy_mode_still_detects_drift_and_repairs_it(sync, tmp_path) -> None:
+    """The fallback keeps the old contract, because a copy can still go stale."""
+    root, home, argv = _sandbox(tmp_path)
+    canonical = _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    assert sync.main(argv + ["--copy"]) == 0
+    copied = home / ".cursor" / "skills" / "veyra-proof"
+    assert not copied.is_symlink(), "--copy must install a real copy"
+
+    (canonical / "SKILL.md").write_text("# v2\n", encoding="utf-8")
+    assert sync.main(argv + ["--copy", "--check"]) == 1
+    assert sync.main(argv + ["--copy"]) == 0
+    assert sync.main(argv + ["--copy", "--check"]) == 0
+    assert (copied / "SKILL.md").read_text(encoding="utf-8") == "# v2\n"
+
+
+@needs_links
+def test_a_copy_installed_with_copy_mode_is_accepted_by_the_default_check(
+    sync, tmp_path, capsys
+) -> None:
+    """A machine that chose copies must not be reported as broken forever.
+
+    The marker is what makes that safe to allow: it says the directory was
+    installed on purpose, so `--check` reports it as its own kind of correct
+    rather than as a duplicate to repair. An *unstamped* matching copy is still
+    repaired — see the conversion test below — because that one arrived by hand.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    assert sync.main(argv + ["--copy"]) == 0
+    capsys.readouterr()
+
+    assert sync.main(argv + ["--check"]) == 0
+    out = capsys.readouterr().out
+    assert "installed on purpose with --copy" in out
+
+
+@needs_links
+def test_a_matching_copy_without_a_marker_is_converted_to_a_link(
+    sync, tmp_path
+) -> None:
+    """A copy nobody declared is a duplicate, whatever it was meant to be."""
+    root, home, argv = _sandbox(tmp_path)
+    canonical = _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    target = home / ".cursor" / "skills" / "veyra-proof"
+    target.mkdir(parents=True)
+    for rel in sorted(path.name for path in canonical.iterdir()):
+        (target / rel).write_bytes((canonical / rel).read_bytes())
+
+    assert sync.main(argv + ["--check"]) == 1, "an undeclared duplicate is drift"
+    assert sync.main(argv) == 0
+    assert target.is_symlink()
+
+
+def test_an_unmanaged_directory_holding_foreign_files_is_left_alone(
+    sync, tmp_path, capsys
+) -> None:
+    """The guard that keeps the link mode from deleting somebody's work.
+
+    A directory at the target holding a file this skill does not ship is not a
+    copy of this skill, whatever it is called. It is reported, it fails the check
+    so a human sees it, and no write run replaces it.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+    target = home / ".cursor" / "skills" / "veyra-proof"
+    target.mkdir(parents=True)
+    (target / "notes.md").write_text("my own notes\n", encoding="utf-8")
+
+    assert sync.main(argv + ["--check"]) == 1, "the check must not pass over this"
+    assert sync.main(argv) == 0
+
+    assert (target / "notes.md").read_text(encoding="utf-8") == "my own notes\n", (
+        "a write run destroyed a file no script wrote"
+    )
+    assert "this skill does not have" in capsys.readouterr().out
+
+
+def test_a_plain_file_at_a_target_is_left_alone(sync, tmp_path) -> None:
+    """Not a directory, not a link: the script has no business guessing."""
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+    target = home / ".cursor" / "skills" / "veyra-proof"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("a file where a directory goes\n", encoding="utf-8")
+
+    assert sync.main(argv + ["--check"]) == 1
+    assert sync.main(argv) == 0
+    assert target.read_text(encoding="utf-8") == "a file where a directory goes\n"
+
+
+@needs_links
+def test_a_link_pointing_somewhere_else_is_relinked(sync, tmp_path, capsys) -> None:
+    """Somebody's working copy is not this checkout, and the note says which is which."""
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+    elsewhere = tmp_path / "someone-elses-skill"
+    elsewhere.mkdir()
+    (elsewhere / "SKILL.md").write_text("# their edit\n", encoding="utf-8")
+    target = home / ".cursor" / "skills" / "veyra-proof"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.symlink_to(elsewhere)
+
+    assert sync.main(argv + ["--check"]) == 1
+    assert sync.main(argv) == 0
+    assert target.is_symlink()
+    assert target.resolve() == (root / CANONICAL_REL).resolve()
+    assert (elsewhere / "SKILL.md").read_text(encoding="utf-8") == "# their edit\n", (
+        "relinking destroyed the directory the old link pointed at"
+    )
+    assert "points somewhere else" in capsys.readouterr().out
+
+
+@needs_links
+def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(
+    sync, tmp_path, capsys
+) -> None:
+    """The honest cost of a link: it is only as durable as the checkout it names.
+
+    Moving or deleting the checkout leaves every harness target dangling. That is
+    a real regression against the copy mode, so it is pinned here with the repair
+    rather than mentioned in prose and hoped for.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+    assert sync.main(argv) == 0
+    target = home / ".cursor" / "skills" / "veyra-proof"
+    assert target.is_dir()
+    capsys.readouterr()
+
+    target.unlink()
+    target.symlink_to(tmp_path / "the-old-place" / "repo" / CANONICAL_REL)
+
+    assert sync.main(argv + ["--check"]) == 1
+    out = capsys.readouterr().out
+    assert "moved or was deleted" in out, "a dead link must not read as an ordinary difference"
+    assert sync.main(argv) == 0
+    assert (target / "SKILL.md").is_file(), "the repair did not produce a readable skill"
+
+
+def test_a_machine_without_symlinks_falls_back_to_a_copy_and_says_so(
+    sync, tmp_path, monkeypatch
+) -> None:
+    """Windows without Developer Mode is a real machine, not an error case.
+
+    A check that cannot pass on a platform is one people learn to bypass, so the
+    fallback installs a stamped copy and `--check` accepts it — and the report
+    says why, so nobody concludes the links are in place.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+    monkeypatch.setattr(sync, "links_supported", lambda: False)
+
+    assert sync.main(argv) == 0
+    target = home / ".cursor" / "skills" / "veyra-proof"
+    assert not target.is_symlink(), "a copy was expected where links are unavailable"
+    assert (target / sync.MARKER).is_file()
+    assert sync.main(argv + ["--check"]) == 0
+    assert (target / "SKILL.md").is_file()
+
+
+def test_the_report_names_the_mode_it_is_working_in(sync, tmp_path, capsys) -> None:
+    """Link or copy is the first thing a reader needs to know about a run."""
+    root, _, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+
+    sync.main(argv + ["--check"])
+    assert "mode       link" in capsys.readouterr().out
+
+    sync.main(argv + ["--copy", "--check"])
+    assert "mode       copy" in capsys.readouterr().out
 
 
 def test_sync_never_touches_the_real_home(sync, tmp_path) -> None:
@@ -391,49 +609,95 @@ def _stamped_copy(parent: Path, name: str, skill_name: str) -> Path:
     return directory
 
 
-def test_a_synced_copy_carries_the_ownership_marker(sync, tmp_path) -> None:
-    """Unstamped copies are unprunable, so the stamp is not optional decoration."""
+@needs_links
+def test_a_synced_target_is_a_link_and_stamps_nothing(sync, tmp_path) -> None:
+    """A link needs no ownership stamp, and must not write one where it would land.
+
+    ``<target>/.veyra-skill-sync`` inside a linked target resolves to the *repo's*
+    own skill directory. The old copy mode stamped what it wrote; the link mode has
+    to prove ownership by its target instead, or the stamp lands in canonical.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    canonical = _seed_skill(root)
+
+    (home / ".cursor").mkdir()
+    assert sync.main(argv) == 0
+
+    target = home / ".cursor" / "skills" / CANONICAL_REL.name
+    assert target.is_symlink()
+    assert target.resolve() == canonical.resolve()
+    assert not (canonical / sync.MARKER).exists(), (
+        "the copy stamp was written into the canonical skill"
+    )
+
+
+def test_copy_mode_stamps_a_healthy_copy_that_lost_its_marker(sync, tmp_path) -> None:
+    """Unstamped copies are unprunable, so copy mode still backfills the stamp."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
     (home / ".cursor").mkdir()
-
-    assert sync.main(argv) == 0
-    copied = home / ".cursor" / "skills" / CANONICAL_REL.name
-    stamp = (copied / sync.MARKER).read_text(encoding="utf-8").strip()
-    assert stamp == CANONICAL_REL.name, "the stamp must name the skill that wrote it"
-
-
-def test_healthy_copy_is_backfilled_when_the_marker_is_missing(sync, tmp_path) -> None:
-    """A copy synced before the marker existed reports 'ok' and must still be stamped."""
-    root, home, argv = _sandbox(tmp_path)
-    _seed_skill(root)
-    (home / ".cursor").mkdir()
-    assert sync.main(argv) == 0
+    assert sync.main(argv + ["--copy"]) == 0
 
     copied = home / ".cursor" / "skills" / CANONICAL_REL.name
     (copied / sync.MARKER).unlink()
 
-    assert sync.main(argv) == 0
+    assert sync.main(argv + ["--copy"]) == 0
     assert (copied / sync.MARKER).is_file()
+    # Two lines: who wrote it, and the mode it was installed in. The mode word is
+    # what a later run reads to tell a declared copy from a duplicate.
+    stamp = (copied / sync.MARKER).read_text(encoding="utf-8").splitlines()
+    assert stamp[0] == CANONICAL_REL.name
+    assert stamp[1] == sync.MODE_COPY
+    assert sync.marker_mode(copied) == sync.MODE_COPY
 
 
-def test_check_writes_nothing_including_the_marker(sync, tmp_path) -> None:
+@needs_links
+def test_a_copy_stamped_by_the_older_script_is_converted_not_accepted(
+    sync, tmp_path
+) -> None:
+    """The migration this change needs, and the reason the stamp got a second line.
+
+    Every machine already carrying a stamped copy has a directory that proves it is
+    ours but says nothing about a human choosing copies. Reading that stamp as a
+    declaration would leave the fan-out duplicated behind a green check — the exact
+    situation the link mode exists to end — so it converges like any other
+    duplicate, while `--prune` keeps trusting it as ours.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    canonical = _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    target = home / ".cursor" / "skills" / CANONICAL_REL.name
+    target.mkdir(parents=True)
+    for path in sorted(canonical.iterdir()):
+        (target / path.name).write_bytes(path.read_bytes())
+    (target / sync.MARKER).write_text(f"{CANONICAL_REL.name}\n", encoding="utf-8")
+    assert sync.marker_mode(target) == "", "an older stamp declares no mode"
+    assert sync.is_managed(target), "an older stamp still proves ownership"
+
+    assert sync.main(argv + ["--check"]) == 1
+    assert sync.main(argv) == 0
+    assert target.is_symlink()
+
+
+def test_check_writes_nothing_at_all(sync, tmp_path) -> None:
     """--check promises to change nothing; a hidden write would break that."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
     (home / ".cursor").mkdir()
 
     assert sync.main(argv + ["--check"]) == 1
-    copied = home / ".cursor" / "skills" / CANONICAL_REL.name
-    assert not (copied / sync.MARKER).exists()
+    target = home / ".cursor" / "skills" / CANONICAL_REL.name
+    assert not target.exists() and not target.is_symlink(), "--check created the target"
+    assert not (target / sync.MARKER).exists()
 
 
-def test_rename_leaves_a_copy_that_only_prune_can_see(sync, tmp_path, monkeypatch) -> None:
+def test_rename_leaves_a_target_that_only_prune_can_see(sync, tmp_path, monkeypatch) -> None:
     """The regression this mode exists for.
 
-    After a rename, --check is perfectly happy: the new name is written and
-    byte-identical. Nothing in the old harness flow ever looks at the old name,
-    which is how a retired skill keeps answering as if it were live.
+    After a rename, --check is perfectly happy: the new name is installed and
+    reads the canonical skill. Nothing in the old harness flow ever looks at the
+    old name, which is how a retired skill keeps answering as if it were live.
     """
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -441,14 +705,41 @@ def test_rename_leaves_a_copy_that_only_prune_can_see(sync, tmp_path, monkeypatc
     assert sync.main(argv) == 0
 
     monkeypatch.setattr(sync, "SKILL_NAME", "veyra-next")
-    assert sync.main(argv) == 0, "the new name gets written"
+    assert sync.main(argv) == 0, "the new name gets installed"
     assert sync.main(argv + ["--check"]) == 0, "--check is now perfectly satisfied"
 
     retired = home / ".cursor" / "skills" / "veyra-proof"
-    assert retired.is_dir(), (
-        "the retired copy survives a green --check, still declares the old "
+    assert retired.exists(), (
+        "the retired target survives a green --check, still declares the old "
         "name, and keeps answering queries as if it were live"
     )
+
+
+@needs_links
+def test_prune_finds_a_link_left_dangling_by_a_rename(sync, tmp_path) -> None:
+    """The realistic rename moves the canonical directory too, which kills the link.
+
+    A dead link is not ``is_dir()``, so the existence test has to accept a link as
+    well as a directory or the retired skill is invisible to every scan — the same
+    blind spot, one shape over.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    canonical = _seed_skill(root)
+    (home / ".cursor").mkdir()
+    assert sync.main(argv) == 0
+
+    renamed = canonical.parent / "veyra-next"
+    canonical.rename(renamed)
+    sync.SKILL_NAME = "veyra-next"
+    sync.CANONICAL_REL = Path(".cursor") / "skills" / "veyra-next"
+
+    retired = home / ".cursor" / "skills" / "veyra-proof"
+    assert retired.is_symlink() and not retired.exists(), "expected a dead link"
+
+    assert sync.main(argv + ["--prune"]) == 1
+    assert sync.main(argv + ["--prune", "--apply"]) == 0
+    assert not retired.exists() and not retired.is_symlink()
+    assert (home / ".cursor" / "skills" / "veyra-next" / "SKILL.md").is_file()
 
 
 def test_prune_is_a_dry_run_by_default(sync, tmp_path, capsys) -> None:
@@ -478,8 +769,8 @@ def test_prune_apply_removes_only_our_own_copies(sync, tmp_path) -> None:
 
     assert sync.main(argv + ["--prune", "--apply"]) == 0
     assert not (skills / "veyra-old").exists()
-    assert current.is_dir(), "the live copy must survive its own prune"
-    assert (current / sync.MARKER).is_file()
+    assert current.is_symlink(), "the live target must survive its own prune"
+    assert (current / "SKILL.md").is_file()
 
 
 def test_prune_leaves_foreign_skills_untouched(sync, tmp_path) -> None:
@@ -519,6 +810,18 @@ def test_prune_on_a_clean_install_finds_nothing(sync, tmp_path, capsys) -> None:
 
     assert sync.main(argv + ["--prune"]) == 0
     assert "no managed copy left behind" in capsys.readouterr().out
+
+
+def test_installing_a_link_is_recorded_in_the_audit_log(sync, tmp_path) -> None:
+    """The log is the record of what this script did to a shared directory."""
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    assert sync.main(argv) == 0
+    log = sync.LOG_PATH.read_text(encoding="utf-8")
+    assert "cursor/global" in log
+    assert "link" in log
 
 
 def test_prune_is_recorded_in_the_audit_log(sync, tmp_path) -> None:

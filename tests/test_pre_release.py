@@ -15,6 +15,7 @@ asserted rather than executed.
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -54,6 +55,17 @@ def _failing(name: str, code: int = 3):
         "why",
         (lambda: [sys.executable, "-c", f"import sys; print('boom'); sys.exit({code})"],),
     )
+
+
+def _counting(name: str, counter: Path, code: int = 0):
+    """A step that appends to ``counter``, so a second run is visible as a count."""
+    body = f"open(r'{counter}', 'a', encoding='utf-8').write('x'); raise SystemExit({code})"
+    return lambda gate: gate.Step(name, "why", (lambda: [sys.executable, "-c", body],))
+
+
+def _runs(counter: Path) -> int:
+    """How many times a counting step actually executed."""
+    return counter.read_text(encoding="utf-8").count("x") if counter.exists() else 0
 
 
 def _build(gate, *factories):
@@ -236,6 +248,23 @@ def test_an_unknown_skip_name_is_misuse(gate, released, capsys) -> None:
 
 
 @needs_git
+@needs_git
+def test_a_wheel_that_misnames_itself_blocks_the_tag(gate, released) -> None:
+    """The new step has to be a gate, not a report.
+
+    It is injected rather than run so the test stays in milliseconds, but the
+    refusal path is the real one: the same call that would create the tag, with a
+    failing `wheel` step in the checklist.
+    """
+    code = gate.main(
+        ["--root", str(released), "--tag", "v0.4.2"],
+        steps=_build(gate, _passing("tests"), _failing("wheel")),
+    )
+
+    assert code == 1
+    assert _tags(released) == "", "a tag was created although the wheel disagreed with itself"
+
+
 def test_skip_cannot_be_used_to_tag(gate, released, capsys) -> None:
     """The whole point: a partial checklist must not be able to cut a release."""
     code = gate.main(
@@ -434,16 +463,309 @@ def test_a_tag_whose_annotation_git_rewrites_is_removed(gate, released, capsys) 
 
 
 @needs_git
-def test_a_title_without_a_tag_is_refused(gate, released, capsys) -> None:
-    """A headline describes a tag; accepting it alone would silently drop it."""
+def test_a_title_without_a_tag_reaches_the_notes(gate, released, capsys) -> None:
+    """A headline used to need `--tag` because it did nothing on its own.
+
+    It does something now: the notes step carries it, and the notes are written on
+    every passing run. Requiring the tag would mean a release could not be prepared
+    and read with its headline until the tag existed — which is the order a release
+    is actually reviewed in.
+    """
     code = gate.main(
         ["--root", str(released), "--title", "a headline"],
         steps=_build(gate, _passing("tests")),
     )
 
-    assert code == 2
-    assert "needs --tag" in capsys.readouterr().err
-    assert _tags(released) == ""
+    assert code == 0, capsys.readouterr().err
+    assert _tags(released) == "", "nothing may be tagged without --tag"
+
+    notes = next(
+        step for step in gate.default_steps(released, "a headline") if step.name == "notes"
+    )
+    assert "--title a headline" in " ".join(notes.commands[0]())
+
+
+# --------------------------------------------------------------------------
+# Resuming a release that was interrupted
+# --------------------------------------------------------------------------
+
+
+def _run(gate, root: Path, steps, *extra: str) -> int:
+    return gate.main(["--root", str(root), *extra], steps=steps)
+
+
+@needs_git
+def test_a_second_run_resumes_what_this_tree_already_verified(
+    gate, released, tmp_path, capsys
+) -> None:
+    """The release is the point, not the checklist: half a minute becomes nothing.
+
+    Measured on the real checkout, the full checklist took 22.4s, 29.4s and 35.4s and
+    the resumed runs 0.14s, 0.15s and 0.13s. Re-running it after an interruption is
+    not just slow — it is how a releaser learns to skip the gate.
+    """
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter))
+
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 1
+    capsys.readouterr()
+
+    code = _run(gate, released, steps)
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert _runs(counter) == 1, "the step ran again although this tree had verified it"
+    assert "PASS (resumed)" in out
+    assert "verified on this exact tree" in out
+
+
+def test_only_passes_are_recorded(gate, released, tmp_path) -> None:
+    """A failure has no representation in the ledger, so it cannot be inherited."""
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter, code=3))
+
+    assert _run(gate, released, steps) == 1
+    assert _runs(counter) == 1
+
+    ledger = json.loads(gate.default_state(released).read_text(encoding="utf-8"))
+    assert ledger["steps"] == {}, "a failure was recorded"
+
+    assert _run(gate, released, steps) == 1
+    assert _runs(counter) == 2, "a recorded failure was resumed instead of re-run"
+
+
+@needs_git
+def test_a_changed_tree_invalidates_every_record(gate, released, tmp_path) -> None:
+    """A cache tied to a tree is the only kind worth having — names *and* bytes.
+
+    The two shapes of change fail differently: a new file changes the list of names,
+    an edit changes the bytes behind a name already in it. A fingerprint built from
+    names alone would let an edited script reuse a recorded pass, so both are driven
+    here deliberately.
+    """
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter))
+    assert _run(gate, released, steps) == 0
+
+    (released / "notes.txt").write_text("a new untracked file\n", encoding="utf-8")
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 2, "the record survived a new file in the tree"
+
+    (released / "notes.txt").write_text("edited after it was verified\n", encoding="utf-8")
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 3, "an edit to a file left the record standing"
+
+
+def test_a_ledger_from_another_version_is_ignored(gate, released, tmp_path) -> None:
+    """Records are scoped to the release they were made for."""
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter))
+    gate.write_ledger(
+        gate.default_state(released),
+        {
+            "version": "9.9.9",
+            "fingerprint": gate.tree_fingerprint(released),
+            "steps": {"tests": "whenever"},
+        },
+    )
+
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 1
+
+
+def test_an_unreadable_ledger_is_not_trusted(gate, released, tmp_path) -> None:
+    """A cache that cannot be read is not a cache; the steps run again."""
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter))
+    gate.default_state(released).write_text("{ not json", encoding="utf-8")
+
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 1
+
+
+def test_the_ledger_stays_out_of_the_working_tree(gate, released, tmp_path) -> None:
+    """It is the checkout's own note, not part of what gets released."""
+    state = gate.default_state(released)
+    assert state.parent.name == ".git", "the ledger must not sit where it could be committed"
+
+    assert _run(gate, released, _build(gate, _counting("tests", tmp_path / "r.txt"))) == 0
+    assert state.is_file()
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=released, capture_output=True, text=True
+    )
+    assert status.stdout.strip() == "", f"the ledger is visible to git: {status.stdout!r}"
+
+
+def test_the_record_is_pinned_to_the_tree_it_verified(gate, released, tmp_path) -> None:
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+    assert _run(gate, released, steps) == 0
+
+    ledger = json.loads(gate.default_state(released).read_text(encoding="utf-8"))
+    assert ledger["fingerprint"] == gate.tree_fingerprint(released)
+    assert ledger["version"] == "0.4.2"
+    assert set(ledger["steps"]) == {"tests"}
+
+
+@needs_git
+def test_the_gate_runs_from_a_linked_worktree(gate, released, tmp_path) -> None:
+    """Preparing a release from a worktree is normal; crashing there is not.
+
+    In a linked worktree `.git` is a *file* pointing at the checkout's real git
+    directory, so the ledger path assumed here was unmakeable — `mkdir` raised
+    `FileExistsError` and the gate died with a traceback before running a single
+    step. Found by driving the gate at another commit from a worktree, which is the
+    first thing anyone does when they want to check an older release.
+    """
+    worktree = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "worktree", "add", "--detach", str(worktree), "HEAD"],
+        cwd=released,
+        check=True,
+        capture_output=True,
+    )
+
+    assert (worktree / ".git").is_file(), "the fixture is not a linked worktree"
+    state = gate.default_state(worktree)
+    assert state.parent.name != ".git", (
+        "the ledger must follow the real git directory, not the .git file"
+    )
+
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter))
+
+    assert _run(gate, worktree, steps) == 0
+    assert state.is_file(), "the run passed but recorded nothing"
+    assert _run(gate, worktree, steps) == 0
+    assert _runs(counter) == 1, "a worktree run did not resume from its own ledger"
+
+
+def test_a_ledger_that_cannot_be_written_does_not_end_the_run(
+    gate, released, tmp_path, capsys
+) -> None:
+    """A cache write may cost a resume; it may not cost the release.
+
+    The step results are the product, the ledger is an optimisation. A run that died
+    on the write would report nothing at all, so the failure is reported instead.
+    """
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+
+    assert gate.write_ledger(blocker / "ledger.json", {"steps": {}}) is False
+
+    monkeypatch_state = blocker / "ledger.json"
+    original = gate.default_state
+    gate.default_state = lambda root, _state=monkeypatch_state: _state
+    try:
+        code = _run(gate, released, _build(gate, _counting("tests", tmp_path / "r.txt")))
+    finally:
+        gate.default_state = original
+
+    out = capsys.readouterr().out
+    assert code == 0, "an unwritable ledger failed the release"
+    assert "could not be written" in out
+    assert "PASS  all 1 step(s) passed" in out
+
+
+@needs_git
+def test_a_rerun_after_the_tag_does_not_replay_the_checklist(
+    gate, released, tmp_path, capsys
+) -> None:
+    """The interruption this exists for: the tag was cut, the release was not published.
+
+    Before, a re-run refused with `already exists` and the only way forward was to
+    replay everything by hand.
+    """
+    counter = tmp_path / "runs.txt"
+    steps = _build(gate, _counting("tests", counter))
+
+    assert _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline") == 0
+    assert _runs(counter) == 1
+    capsys.readouterr()
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert _runs(counter) == 1, "the checklist replayed although the tag was already cut"
+    assert "PASS (resumed)" in out
+    assert "already tagged" in out
+    assert _tags(released) == "v0.4.2"
+
+
+def test_the_gate_says_what_is_left_and_what_it_will_not_do(gate, released, tmp_path, capsys) -> None:
+    """It stops at the tag on purpose; the remaining commands are spelled out."""
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "=== release state" in out
+    assert "git push origin v0.4.2" in out
+    assert "gh release create v0.4.2" in out
+    assert "publish.yml" in out
+    assert "cannot be undone" in out, "the gate must say why it stops here"
+    assert "no origin/main" in out
+
+
+def test_the_remaining_report_names_the_notes_file_it_can_see(gate, released, tmp_path, capsys) -> None:
+    """When the release body exists, the command to publish it is copy-pasteable."""
+    (released / ".freebuff").mkdir()
+    (released / ".freebuff" / "release-notes-v0.4.2.md").write_text("notes\n", encoding="utf-8")
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "--notes-file .freebuff/release-notes-v0.4.2.md" in out
+
+    (released / ".freebuff" / "release-notes-v0.4.2.md").unlink()
+    capsys.readouterr()
+
+    assert _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline") == 0
+    assert "there is no notes file" in capsys.readouterr().out
+
+
+@needs_git
+def test_an_existing_tag_that_is_not_ours_still_refuses(gate, released, capsys) -> None:
+    """Resuming recognises one tag: the annotated one this gate would create."""
+    subprocess.run(
+        ["git", "tag", "-a", "v0.4.2", "-m", "something else entirely"],
+        cwd=released,
+        check=True,
+        capture_output=True,
+    )
+
+    code = _run(gate, released, _build(gate, _passing("tests")), "--tag", "v0.4.2")
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "different annotation" in out
+    assert "something else entirely" in out, "the refusal does not say what is there"
+
+
+@needs_git
+def test_a_tag_for_another_commit_still_refuses(gate, released, capsys) -> None:
+    """A tag left on an older commit would name a release nobody verified."""
+    subprocess.run(
+        ["git", "tag", "-a", "v0.4.2", "-m", "v0.4.2"], cwd=released, check=True, capture_output=True
+    )
+    (released / "later.txt").write_text("moved on\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=released, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@e.com", "-c", "user.name=T", "commit", "-qm", "later"],
+        cwd=released,
+        check=True,
+        capture_output=True,
+    )
+
+    code = _run(gate, released, _build(gate, _passing("tests")), "--tag", "v0.4.2")
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "points at" in out and "not at this commit" in out
 
 
 @needs_git
@@ -460,13 +782,189 @@ def test_without_tag_nothing_is_tagged(gate, released, capsys) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_checklist_is_the_documented_four(gate) -> None:
+def test_the_checklist_is_the_documented_seven(gate) -> None:
     assert [step.name for step in gate.default_steps(REPO_ROOT)] == [
         "tests",
+        "platforms",
         "copies",
         "build",
+        "wheel",
         "evidence",
+        "notes",
     ]
+
+
+def test_the_notes_step_writes_them_from_the_record(gate) -> None:
+    """The last step is the release notes, and it is run by this gate.
+
+    It is a step rather than a suggestion because that is what makes "no number was
+    typed by hand" mechanical: the notes are generated by the same command that
+    refuses the tag, and a run that cannot generate them does not tag.
+    """
+    notes = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "notes")
+    argv = " ".join(notes.commands[0]())
+
+    assert "release_notes.py" in argv
+    assert f"--root {REPO_ROOT}" in argv
+
+    titled = next(
+        step
+        for step in gate.default_steps(REPO_ROOT, "a headline")
+        if step.name == "notes"
+    )
+    assert '--title a headline' in " ".join(titled.commands[0]()), (
+        "the notes carry the same headline as the tag, and it comes from --title"
+    )
+
+
+def test_the_steps_that_report_a_measurement_are_the_ones_that_can(gate) -> None:
+    """Facts only exist where a step states them; the rest are absent, not zero."""
+    reporting = {
+        step.name: step.report.name
+        for step in gate.default_steps(REPO_ROOT)
+        if step.report is not None
+    }
+
+    assert set(reporting) == {"tests", "platforms", "wheel", "evidence"}, reporting
+    assert reporting["tests"] == "tests.xml", "pytest's counts come from its JUnit XML"
+
+
+@needs_git
+def test_a_deferred_step_runs_after_the_record_is_written(gate, released, capsys) -> None:
+    """`notes` is last for a reason: it reads what the run measured.
+
+    Driven with a step that fails unless the ledger exists, because that is the
+    ordering claim — not merely that the names are sorted a particular way.
+    """
+    state = gate.default_state(released)
+    body = (
+        f"import pathlib, sys; "
+        f"sys.exit(0 if pathlib.Path(r'{state}').is_file() else 3)"
+    )
+
+    def deferred_step(gate_module):
+        return gate_module.Step(
+            "notes", "why", (lambda: [sys.executable, "-c", body],)
+        )
+
+    code = gate.main(
+        ["--root", str(released)],
+        steps=_build(gate, _passing("tests"), deferred_step),
+    )
+
+    assert code == 0, "the deferred step saw no record to read"
+    assert "notes: PASS" in capsys.readouterr().out
+
+
+def test_a_step_whose_product_is_a_file_is_never_resumed(gate, released, tmp_path) -> None:
+    """Deleting the notes must not leave a record claiming they were generated.
+
+    A measurement is a fact about a run and stays true; a file can be deleted between
+    runs, so the step is re-derived every time. Driven with a counting step marked the
+    same way the notes step is, since the real one needs a full release to run.
+    """
+    counter = tmp_path / "derived.txt"
+
+    def derived(gate_module):
+        factory = _counting("notes", counter)
+        step = factory(gate_module)
+        return gate_module.Step(step.name, step.why, step.commands, resumable=False)
+
+    steps = _build(gate, _counting("tests", tmp_path / "tests.txt"), derived)
+
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 1
+    assert _run(gate, released, steps) == 0
+    assert _runs(counter) == 2, "a derived file was assumed to still be there"
+
+    assert next(
+        step for step in gate.default_steps(REPO_ROOT) if step.name == "notes"
+    ).resumable is False, "the real notes step has to carry that flag too"
+
+
+@needs_git
+def test_a_failing_notes_step_refuses_the_tag(gate, released) -> None:
+    """Notes that cannot be generated from the record stop the release."""
+    code = gate.main(
+        ["--root", str(released), "--tag", "v0.4.2"],
+        steps=_build(gate, _passing("tests"), _failing("notes")),
+    )
+
+    assert code == 1
+    assert _tags(released) == "", "a tag was created with no generated notes"
+
+
+@needs_git
+def test_deferred_steps_do_not_run_when_an_earlier_step_failed(gate, released) -> None:
+    """A deferred step documents a run; a failed run has nothing to document.
+
+    Without this the notes step passed beside a failing suite and left a notes file
+    reading "nothing was measured" where a releaser looks for the release notes.
+    """
+    counter = released.parent / "notes-ran.txt"
+    code = gate.main(
+        ["--root", str(released)],
+        steps=_build(gate, _failing("build"), _counting("notes", counter)),
+    )
+
+    assert code == 1
+    assert not counter.exists(), "the deferred step ran after a step had failed"
+
+
+def test_the_platforms_step_asks_the_other_platforms_for_this_commit(gate) -> None:
+    """The suite passing here says nothing about Windows, so the step asks.
+
+    It must read the checkout it was pointed at, because `--commit` defaults to the
+    HEAD of the repository the script is looking at, and the gate can be pointed at
+    another one.
+    """
+    platforms = next(
+        step for step in gate.default_steps(REPO_ROOT) if step.name == "platforms"
+    )
+    commands = " ".join(" ".join(build_argv()) for build_argv in platforms.commands)
+
+    assert "check_platforms.py" in commands
+    assert f"--root {REPO_ROOT}" in commands
+
+
+@needs_git
+def test_platforms_that_never_ran_block_the_tag(gate, released) -> None:
+    """A commit whose CI is red or absent must not become a release.
+
+    This is v0.4.3: it was tagged and published here, and only then did CI report
+    that both Windows jobs had failed — so the fix had to be shipped as the next
+    version instead. Injected, like the wheel refusal, so the test costs nothing
+    and still exercises the real path that would create the tag.
+    """
+    code = gate.main(
+        ["--root", str(released), "--tag", "v0.4.2"],
+        steps=_build(gate, _passing("tests"), _failing("platforms")),
+    )
+
+    assert code == 1
+    assert _tags(released) == "", "a tag was created although the other platforms never passed"
+
+
+def test_the_wheel_step_checks_the_artefact_that_was_just_built(gate) -> None:
+    """The wheel step is only meaningful on the artefact the build step wrote.
+
+    It runs `check_wheel_version.py` against *this* checkout, which finds the wheel
+    in `dist/` by the version `pyproject.toml` declares. Were it ordered before
+    `build` it would inspect whatever the previous release left behind, which is
+    the failure the build step's own `twine` check was fixed for.
+    """
+    names = [step.name for step in gate.default_steps(REPO_ROOT)]
+    assert names.index("build") < names.index("wheel"), (
+        "the wheel step must run after the build that produces it"
+    )
+
+    wheel = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "wheel")
+    commands = " ".join(" ".join(build_argv()) for build_argv in wheel.commands)
+
+    assert "check_wheel_version.py" in commands
+    assert f"--root {REPO_ROOT}" in commands, (
+        "the step must check the checkout it was pointed at, not the one it lives in"
+    )
 
 
 def test_the_checklist_includes_the_copy_check(gate) -> None:
