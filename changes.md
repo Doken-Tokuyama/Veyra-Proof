@@ -94,7 +94,7 @@ rejected the run.
   (`build`, `check`, `test`, `clippy`, `nextest`, …) when a lockfile exists, and never
   adds it when one does not — `--locked` on a project with no lock makes cargo refuse to
   build at all.
-* `Tool.cargo_command()` routes every tool through it, so **plan = ejecución = evidencia**.
+* `Tool.cargo_command()` routes every tool through it, so **plan = execution = evidence**.
   Before, the report recorded a command the tool had not actually run.
 * A stale lockfile is now `INCONCLUSIVE` with an instruction, not a bare
   "Non-zero exit code 101".

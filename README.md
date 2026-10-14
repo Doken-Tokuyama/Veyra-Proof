@@ -101,9 +101,11 @@ Use the **demo fixture** included in this repo, or point at a **real** Rust work
 .venv/bin/python -m veyra_proof audit . --dry-run
 ```
 
-`--install-missing` pedirá confirmación antes de instalar; añade `--yes` si quieres que lo haga sin preguntar.
+`--install-missing` asks for confirmation before installing anything; add `--yes` if you
+want it to install without asking.
 
-Las instalaciones (`cargo install --locked`) compilan desde fuente y pueden tardar 10–40+ minutos. Sin `--verbose` verás solo un aviso de progreso; con `--verbose` el output de Cargo se muestra en vivo:
+Installs (`cargo install --locked`) compile from source and can take 10–40+ minutes. Without
+`--verbose` you only see a progress notice; with `--verbose` cargo's own output streams live:
 
 ```bash
 .venv/bin/python -m veyra_proof audit tests/fixtures/demo_crate \
