@@ -96,6 +96,35 @@
   `sync_skill.py --copy` named as the conservative choice for `~/.claude/skills` and
   `~/.agents/skills`. `Veyra/install.py` still copies on purpose, because the published repo is
   cloned by strangers who may delete the clone.
+- **Three Windows defects the release commit's own CI run caught, and two assertions that had only
+  ever run on POSIX.** Both Windows jobs went red on the first commit of this release — ten
+  failures, every one of them in the new work — and the first defect hid the diagnosis of the
+  second. `links_to` compared a recorded symlink target as a raw string, but Windows records an
+  absolute target with the extended-length prefix: a link made to `C:\…` reads back from `os.readlink`
+  as `\\?\C:\…`. So `--check` called every link the script had just created a link to *somewhere
+  else* — the fan-out check could not pass on that platform at all — and `--prune` lost the same
+  comparison from the other side, where a dead link left by a rename was not recognised as this
+  repository's and stayed invisible. The note that difference produces carried `→`, which the
+  Windows ANSI codepage has no room for, so a run that should have reported a failing check instead
+  ended inside `print` with `UnicodeEncodeError` — mid-install, after some targets were linked.
+  `sync_skill.py` now reads recorded targets through one normalizing function (extended-length
+  prefix, shared UNC spelling, `normcase`, because a case-insensitive filesystem hands back whichever
+  case it likes), its plan notes are ASCII, and it relaxes its streams' `errors` handler so a path it
+  was *handed* and cannot encode prints escaped rather than killing the run. Both halves are
+  reproduced here by running the script with `PYTHONIOENCODING=cp1252`, which is what a piped stdout
+  on Windows gets, and `tests/test_console_encoding.py` pins them: a scan for printable string
+  literals the codepage cannot encode, plus the two runs themselves.
+  `check_wheel_version.py` named the console script by its file name, so its "the console script must
+  be checked too" line read `veyra.exe` on Windows and matched an assertion written on POSIX; it
+  names the entry point the wheel declares, and renders the path the module was imported from
+  POSIX-style, so "the module was not read from the venv" reads the same on every platform rather
+  than only on the one it was written on. The last failure was the test's own doing and the only one
+  of the ten that was: `tests/test_ci_assert_evidence.py` compared a POSIX literal (`/somewhere`)
+  against `str(Path(...))`, which is `\somewhere` on Windows — it now compares path objects, since
+  what is under test is *which* value is recorded, not how the platform spells it. Every one of the
+  five new tests was run against the pre-fix scripts first and failed — including the
+  extended-length spelling, which is simulated rather than awaited, because waiting for a Windows
+  runner is how both of these survived their own suite.
 
 ## What changed in v0.4.4
 

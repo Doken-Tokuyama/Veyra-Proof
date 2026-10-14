@@ -193,11 +193,17 @@ def probe(
             )
         elif origin is not None and not _inside(origin, venv):
             problems.append(
-                f"module: imported from {origin}, outside the venv — "
+                f"module: imported from {origin.as_posix()}, outside the venv — "
                 "the version read back was not the wheel's"
             )
         else:
-            confirmed.append(f"module {reported} from {origin}")
+            # Rendered POSIX-style so the line reads the same on every platform: this
+            # is the report a release cites, and `Lib\site-packages\…` and
+            # `lib/site-packages/…` are the same finding spelled two ways.
+            confirmed.append(
+                f"module {reported} from "
+                f"{origin.as_posix() if origin is not None else 'nowhere'}"
+            )
 
     # Two ways a user can ask, so a wheel with a broken entry point is not hidden
     # by the module runner working.
@@ -209,9 +215,14 @@ def probe(
         reported = completed.stdout.strip()
         expected = f"{CONSOLE_SCRIPT} {declared}"
         if completed.returncode != 0:
-            problems.append(f"cli: {console.name} --version exited {completed.returncode}")
+            problems.append(f"cli: {CONSOLE_SCRIPT} --version exited {completed.returncode}")
         elif reported != expected:
-            problems.append(f"cli: {console.name} --version says {reported!r}, expected {expected!r}")
+            # The entry point is named the way the wheel declares it, not the way this
+            # platform spells the file it lands in (`veyra.exe` on Windows): the line
+            # says what a user typed and what they got, which is the claim being checked.
+            problems.append(
+                f"cli: {CONSOLE_SCRIPT} --version says {reported!r}, expected {expected!r}"
+            )
         else:
             confirmed.append(f"cli {reported!r}")
 

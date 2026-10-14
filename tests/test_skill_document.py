@@ -9,6 +9,7 @@ harness-neutral portability contract.
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import sys
 from pathlib import Path
@@ -539,6 +540,51 @@ def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(
     assert "moved or was deleted" in out, "a dead link must not read as an ordinary difference"
     assert sync.main(argv) == 0
     assert (target / "SKILL.md").is_file(), "the repair did not produce a readable skill"
+
+
+@needs_links
+def test_the_windows_spelling_of_a_link_target_is_recognised(
+    sync, tmp_path, monkeypatch
+) -> None:
+    """Windows records an absolute link target with the extended-length prefix.
+
+    A link made to ``C:\\repo\\...`` reads back from ``os.readlink`` as
+    ``\\\\?\\C:\\repo\\...``, and compared as raw strings that is a different path — so
+    every link the script had just created was reported as pointing somewhere else, and
+    ``--check`` could not pass on that platform at all. ``--prune`` lost the same
+    comparison from the other side: the dead link a rename leaves behind was not
+    recognised as ours, so the retired skill stayed invisible.
+
+    The prefix is simulated rather than waited for. It is a property of the recorded
+    string, and waiting for a Windows runner is how both of these survived their own
+    suite; the simulation runs everywhere, including here.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    canonical = _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    recorded = os.readlink
+
+    def as_windows_records_it(path):
+        target = recorded(path)
+        # Only the links of this sandbox: the wrapper is standing in for a platform
+        # behaviour, not for every readlink in the process.
+        return f"\\\\?\\{target}" if str(target).startswith(str(root)) else target
+
+    monkeypatch.setattr(sync.os, "readlink", as_windows_records_it)
+
+    assert sync.main(argv) == 0
+    assert sync.main(argv + ["--check"]) == 0, (
+        "--check must accept the spelling the platform records"
+    )
+
+    retired = home / ".cursor" / "skills" / "veyra-old"
+    retired.symlink_to(canonical)
+    assert sync.main(argv + ["--prune"]) == 1, (
+        "a link left by a rename has to stay visible to --prune"
+    )
+    assert sync.main(argv + ["--prune", "--apply"]) == 0
+    assert not retired.exists() and not retired.is_symlink()
 
 
 def test_a_machine_without_symlinks_falls_back_to_a_copy_and_says_so(

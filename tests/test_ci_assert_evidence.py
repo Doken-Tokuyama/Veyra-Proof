@@ -115,11 +115,16 @@ class TestTheMeasurement:
         directory = _evidence(tmp_path)
         (directory / "manifest.json").unlink()
 
-        facts = checker.measure(directory, 0, Path("/somewhere"))
+        target = Path("/somewhere")
+        facts = checker.measure(directory, 0, target)
 
         assert facts["profile"] is None
         assert facts["auditor_version"] is None
-        assert facts["target"] == "/somewhere", "it falls back to the target it was given"
+        # Against the path object, not the literal: `/somewhere` is a POSIX spelling,
+        # and `str(Path("/somewhere"))` is `\\somewhere` on Windows. What is under test
+        # is *which* value is recorded, and a fixture that only holds on one platform
+        # would have made this line a Windows failure that says nothing about fallbacks.
+        assert facts["target"] == str(target), "it falls back to the target it was given"
         assert facts["verdict"] == "ACCEPTED"
 
     def test_the_report_names_the_tool_that_wrote_it(self, checker, tmp_path) -> None:

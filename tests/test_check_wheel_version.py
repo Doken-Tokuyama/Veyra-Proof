@@ -293,6 +293,35 @@ def test_a_wheel_without_its_console_script_fails(
     assert "installed no 'veyra' console script" in out
 
 
+def test_the_console_script_is_named_the_way_the_wheel_declares_it(
+    check, tmp_path, monkeypatch
+) -> None:
+    """The claim is about `veyra`, not about the file this platform lands it in.
+
+    On Windows the wheel's console script is `veyra.exe`, and the failure line used to
+    name that file — so the assertion that it must check the console script at all
+    (`cli: veyra --version says …`) held only where the file is called `veyra`. The line
+    now names the entry point the wheel declares, which is also what the sibling message
+    ("installed no 'veyra' console script") has always named.
+    """
+    console = tmp_path / "veyra.exe"
+    console.write_text(
+        f"#!{sys.executable}\nprint('veyra 0.3.0')\n", encoding="utf-8"
+    )
+    console.chmod(0o755)
+    monkeypatch.setattr(check, "venv_script", lambda venv, name: console)
+
+    problems, confirmed = check.probe(Path(sys.executable), tmp_path, CONSISTENT)
+
+    assert (
+        "cli: veyra --version says 'veyra 0.3.0', expected 'veyra 9.9.9'" in problems
+    ), problems
+    assert not any("veyra.exe" in problem for problem in problems), (
+        "the report names a file, and the reader is checking a wheel's entry point"
+    )
+    assert confirmed == [], "a console script that disagrees cannot be confirmed either"
+
+
 def test_a_wheel_for_another_version_is_not_this_release(check, tmp_path, capsys) -> None:
     """A `dist/` left from the previous release says nothing about this one."""
     root = _root(tmp_path, version="9.9.9")

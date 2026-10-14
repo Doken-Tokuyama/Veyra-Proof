@@ -215,6 +215,27 @@ def audit(line: str) -> None:
         handle.write(f"{datetime.datetime.now().isoformat()}  {line}\n")
 
 
+def keep_reporting_whatever_the_console_can_encode() -> None:
+    """Make a report that cannot be encoded in the console's codepage a nuisance, not a failure.
+
+    Every script here runs on Windows, where stdout is the ANSI codepage (cp1252, or
+    whatever the machine is set to) whenever it is a pipe rather than a console. This
+    report names paths this script is handed and does not control, so a home directory
+    spelling a character that codepage lacks used to end the run with a traceback —
+    mid-install, after some targets were already linked, and with `--check` reporting
+    nothing at all. The encoding is left alone (a console wants the codepage it was
+    given) and only the *error handler* is relaxed, so the character prints escaped
+    instead: `\\u2192` is a worse-looking report than `→`, and a better one than no
+    report. Python ≥3.7, and any replacement stream that does not support this, are
+    both fine — the guard is the point, not the mechanism.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
 def print_other_copies() -> None:
     """Name the places this command does not own, so its silence is not a pass.
 
@@ -282,6 +303,31 @@ def link_target_of(path: Path) -> str | None:
         return None
 
 
+def comparable_link_target(text: str) -> Path:
+    """A recorded symlink target, spelled the one way two spellings can be compared by.
+
+    Two platform facts live here, both of them Windows.
+
+    ``os.symlink`` there records an absolute target with the extended-length prefix,
+    so a link this script has just made to ``C:\\repo\\.cursor\\skills\\veyra-proof``
+    reads back from ``os.readlink`` as ``\\\\?\\C:\\repo\\.cursor\\skills\\veyra-proof``.
+    Compared raw, every link this script created looked like a link to somewhere
+    else: `--check` could never pass on that platform, and `--prune` could not see
+    the dead link a rename leaves behind — which is precisely what those two modes
+    exist for. Both were green here and red on the only platform that records links
+    that way, which is the whole reason this function exists instead of two `normpath`
+    calls.
+
+    ``normcase`` is the other half: a case-insensitive filesystem hands back whichever
+    case it likes, and what is compared is one directory rather than one string.
+    """
+    if text.startswith("\\\\?\\UNC\\"):
+        text = "\\\\" + text[8:]
+    elif text.startswith("\\\\?\\"):
+        text = text[4:]
+    return Path(os.path.normcase(os.path.normpath(text)))
+
+
 def links_to(path: Path, canonical: Path) -> bool:
     """True when ``path`` is a symlink whose recorded target is ``canonical``.
 
@@ -291,7 +337,7 @@ def links_to(path: Path, canonical: Path) -> bool:
     target = link_target_of(path)
     if target is None:
         return False
-    return Path(os.path.normpath(target)) == Path(os.path.normpath(str(canonical)))
+    return comparable_link_target(target) == comparable_link_target(str(canonical))
 
 
 def is_our_link(path: Path, skills_parent: Path) -> bool:
@@ -305,9 +351,8 @@ def is_our_link(path: Path, skills_parent: Path) -> bool:
     target = link_target_of(path)
     if target is None:
         return False
-    parent = Path(os.path.normpath(str(skills_parent)))
-    candidate = Path(os.path.normpath(target)).parent
-    return candidate == parent
+    parent = comparable_link_target(str(skills_parent))
+    return comparable_link_target(target).parent == parent
 
 
 def drift_in_copy(destination: Path, canonical: Path, files: list[Path]) -> list[str]:
@@ -402,7 +447,7 @@ def plan_target(
     if destination.is_symlink():
         target = link_target_of(destination)
         if links_to(destination, canonical):
-            return Plan("ok", "link → the canonical directory", "none", False)
+            return Plan("ok", "link -> the canonical directory", "none", False)
         # Two different problems wear the same shape, and the note says which: a
         # link into a checkout that moved is dead on arrival, while a link that
         # points at somebody's working copy is alive and reading the wrong text.
@@ -413,7 +458,7 @@ def plan_target(
         )
         if mode == MODE_COPY:
             return Plan("copy", f"replaces the link to {target} ({state})", "copy", True)
-        return Plan("relink", f"link → {target} ({state})", "link", True)
+        return Plan("relink", f"link -> {target} ({state})", "link", True)
 
     if destination.is_dir():
         managed = is_managed(destination)
@@ -640,6 +685,8 @@ def main(argv: list[str] | None = None) -> int:
         help="With --prune, actually delete the reported targets.",
     )
     args = parser.parse_args(argv)
+
+    keep_reporting_whatever_the_console_can_encode()
 
     if args.apply and not args.prune:
         print(
