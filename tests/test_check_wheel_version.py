@@ -299,17 +299,30 @@ def test_the_console_script_is_named_the_way_the_wheel_declares_it(
     """The claim is about `veyra`, not about the file this platform lands it in.
 
     On Windows the wheel's console script is `veyra.exe`, and the failure line used to
-    name that file — so the assertion that it must check the console script at all
-    (`cli: veyra --version says …`) held only where the file is called `veyra`. The line
-    now names the entry point the wheel declares, which is also what the sibling message
-    ("installed no 'veyra' console script") has always named.
+    name that file — so the assertion that the console script is checked at all
+    (`cli: veyra --version says …`) held only where the file happens to be called `veyra`.
+    The line now names the entry point the wheel declares, which is what the sibling
+    message ("installed no 'veyra' console script") has always named.
+
+    The console script is stubbed rather than created and executed, because the file name
+    under test is a Windows one: a `veyra.exe` holding a script is exactly what Windows
+    refuses to run (`WinError 216`), which is how this test failed on its first Windows
+    run. The real path is covered on that platform by the wheel-backed cases above.
     """
     console = tmp_path / "veyra.exe"
-    console.write_text(
-        f"#!{sys.executable}\nprint('veyra 0.3.0')\n", encoding="utf-8"
-    )
-    console.chmod(0o755)
+    console.write_bytes(b"not a program on Windows, and never executed here")
     monkeypatch.setattr(check, "venv_script", lambda venv, name: console)
+
+    class Stub:
+        def __init__(self, code: int, out: str = "") -> None:
+            self.returncode, self.stdout, self.stderr = code, out, ""
+
+    def answer(argv, env):
+        # The console script is the only question that answers with a version; the rest
+        # (metadata, module, module entry) are left empty so only one claim is under test.
+        return Stub(0, "veyra 0.3.0\n") if argv[0] == str(console) else Stub(0)
+
+    monkeypatch.setattr(check, "run", answer)
 
     problems, confirmed = check.probe(Path(sys.executable), tmp_path, CONSISTENT)
 
