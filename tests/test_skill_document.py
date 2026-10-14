@@ -291,10 +291,12 @@ def test_check_names_the_copies_it_does_not_report(sync, tmp_path, capsys) -> No
 
     sync.main(argv + ["--check"])
     out = capsys.readouterr().out
-    assert str(sync.ACCOUNT_STORE_REL) in out
+    # The report renders paths POSIX-style on purpose, so this is what a reader on
+    # any platform sees; comparing `str(Path)` would only hold on POSIX.
+    assert sync.ACCOUNT_STORE_REL.as_posix() in out
     assert "Freebuff Desktop app" in out
     assert "check_account_skill.py" in out
-    assert str(sync.PUBLISHED_REL) in out
+    assert sync.PUBLISHED_REL.as_posix() in out
     assert "byte-identical" in out
 
 
@@ -330,8 +332,8 @@ def test_the_write_path_names_the_same_copies(sync, tmp_path, capsys) -> None:
 def test_the_report_and_the_guide_name_the_same_owners(sync) -> None:
     """The output and SKILL-COPIES.md may not tell the reader different stories."""
     guide = COPIES_GUIDE.read_text(encoding="utf-8")
-    assert str(sync.ACCOUNT_STORE_REL) in guide
-    assert str(sync.PUBLISHED_REL) in guide
+    assert sync.ACCOUNT_STORE_REL.as_posix() in guide
+    assert sync.PUBLISHED_REL.as_posix() in guide
     assert "Freebuff Desktop app" in guide
 
 

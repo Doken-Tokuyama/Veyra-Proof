@@ -169,6 +169,29 @@ def declared_version(root: Path) -> str:
     return tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 
 
+def relative_skill_files(root: Path) -> list[str]:
+    """Every skill file, named the way git names it.
+
+    ``as_posix()`` here is not cosmetic. ``git ls-files`` prints forward slashes on
+    every platform, while ``str(Path)`` on Windows yields backslashes — so comparing
+    the two made every *tracked* skill file look untracked there, and the gate then
+    refused every tag with "git does not track these skill files". A check that
+    cannot pass on a platform is worse than no check: it teaches people to bypass
+    the gate.
+    """
+    present: list[str] = []
+    for base in SKILL_PATHS:
+        directory = root / base
+        if not directory.is_dir():
+            continue
+        present += [
+            path.relative_to(root).as_posix()
+            for path in sorted(directory.rglob("*"))
+            if path.is_file()
+        ]
+    return present
+
+
 def skill_release_block(root: Path) -> str | None:
     """Why the skill is not fit to tag, or None when it is committed and clean.
 
@@ -177,16 +200,10 @@ def skill_release_block(root: Path) -> str | None:
     while git would never commit it — and a release built from the tagged commit
     would then carry whatever older version *is* committed, silently.
     """
-    present: list[str] = []
     for base in SKILL_PATHS:
-        directory = root / base
-        if not directory.is_dir():
+        if not (root / base).is_dir():
             return f"{base} is not in this checkout, so nothing would be released"
-        present += [
-            str(path.relative_to(root))
-            for path in sorted(directory.rglob("*"))
-            if path.is_file()
-        ]
+    present = relative_skill_files(root)
 
     tracked = set(
         subprocess.run(

@@ -67,10 +67,13 @@ ACCOUNT_STORE_REL = Path(".config") / "freebuff-desktop" / "account-skills"
 PUBLISHED_REL = Path("Veyra") / "skills" / SKILL_NAME
 
 # (label, location, who owns it and how to act on it) — printed by every run.
+# Rendered with `as_posix()` so the report reads the same on every platform and
+# matches SKILL-COPIES.md; a Windows-style `~\.config\…` would be the one place
+# the tool names a path differently from the document that describes it.
 UNREPORTED_COPIES = (
     (
         "Cloud account copy",
-        f"~/{ACCOUNT_STORE_REL}/",
+        f"~/{ACCOUNT_STORE_REL.as_posix()}/",
         (
             "the Freebuff Desktop app owns it and re-materializes it from Cloud;",
             "report it with python3 scripts/check_account_skill.py",
@@ -78,7 +81,7 @@ UNREPORTED_COPIES = (
     ),
     (
         "published copy",
-        f"{PUBLISHED_REL}/",
+        f"{PUBLISHED_REL.as_posix()}/",
         (
             "this repository owns it; the suite keeps it byte-identical to the",
             "canonical skill",

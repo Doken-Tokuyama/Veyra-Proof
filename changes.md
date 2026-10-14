@@ -1,3 +1,29 @@
+## Unreleased
+
+v0.4.3 is published and PyPI serves it; these fix two Windows-only defects that its CI
+run exposed. Both live in the release tooling and the tests, not in the auditor: the CLI,
+the exit codes and the report schema are untouched.
+
+- **The tag gate refused every tag on Windows.** `skill_release_block` compared
+  `str(Path.relative_to(...))` — backslashes on Windows — against `git ls-files` output,
+  which prints forward slashes on every platform. Every *tracked* skill file therefore
+  looked untracked, and the gate refused with "git does not track these skill files" for a
+  checkout that tracked them perfectly. Reproduced on macOS by feeding the comparison the
+  Windows form, then fixed with `as_posix()` in `relative_skill_files`. A check that cannot
+  pass on a platform is worse than no check: it teaches people to bypass the gate.
+  `tests/test_pre_release.py` asserts the invariant (no file name contains a backslash)
+  rather than waiting for a Windows runner to notice again.
+- **`sync_skill.py` renders the copies it names in POSIX form**, so the report reads the
+  same on every platform and matches `SKILL-COPIES.md` instead of printing
+  `~\.config\freebuff-desktop\…` on Windows. The test that keeps the report and the guide
+  in agreement compares `as_posix()`, which is what a reader actually sees.
+- **A store fixture built a CRLF store on Windows.** `tests/test_check_skills.py` wrote the
+  projection with `write_text`, which translates `\n` to `os.linesep`, so the store no
+  longer matched the canonical file byte for byte and the checker — correctly, per its
+  "byte for byte" contract — reported `DIFFERS`. The fixture writes bytes now. Verified by
+  reproducing both forms against the real checker: LF reads `current`, CRLF reads
+  `differs, 38 B vs 34 B`.
+
 ## What changed in v0.4.3
 
 Governance for the copies of the agent skill, and a release gate that refuses an

@@ -360,6 +360,22 @@ def test_a_tag_is_created_when_everything_passes(gate, released, capsys) -> None
 
 
 @needs_git
+def test_the_tracked_check_names_files_the_way_git_prints_them(gate, released) -> None:
+    """`git ls-files` prints forward slashes on every OS; `str(Path)` does not.
+
+    Comparing the two made every tracked skill file look untracked on Windows, so
+    the gate refused *every* tag there with "git does not track these skill files".
+    On POSIX this assertion is a tautology today, which is exactly why it is
+    written against the invariant rather than against a test that runs on Windows.
+    """
+    present = gate.relative_skill_files(released)
+
+    assert present, "the fixture must hold skill files to check"
+    assert all("\\" not in name for name in present), present
+    assert ".cursor/skills/veyra-proof/SKILL.md" in present
+
+
+@needs_git
 def test_the_gate_creates_the_annotated_tag_the_history_uses(gate, released) -> None:
     """Every existing tag reads `vX.Y.Z — <headline>`; a lightweight one would not.
 

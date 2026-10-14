@@ -90,7 +90,11 @@ def _write_store(store: Path, files: dict[str, str]) -> Path:
     projection = store / OWNER / REVISION / SKILL_NAME
     projection.mkdir(parents=True, exist_ok=True)
     for name, body in files.items():
-        (projection / name).write_text(body, encoding="utf-8")
+        # Bytes, not text: `write_text` translates newlines to `os.linesep`, so on
+        # Windows the fixture materialized CRLF and the store it built no longer
+        # matched the canonical file byte for byte — a "current" store that the
+        # checker then, correctly, reported as differing.
+        (projection / name).write_bytes(body.encode("utf-8"))
     return store
 
 
