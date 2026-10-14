@@ -115,6 +115,63 @@ class Tool(ABC):
             return False
         return True
 
+    def detect_via_version(
+        self,
+        context: AuditContext,
+        command: list[str],
+        *,
+        absent_message: str,
+        timeout: float = 20.0,
+        absent_prerequisites: list[str] | None = None,
+    ) -> DetectionResult:
+        """Classify a version probe without calling a present tool "not installed".
+
+        A version probe has three outcomes, not two. The naive reading — any
+        non-zero exit means "not installed" — is the lie that once reported an
+        installed cargo-nextest as missing, because ``cargo nextest --locked
+        --version`` is rejected at the top level and exited 2. So:
+
+        * exit 0 -> ``INSTALLED`` with its version;
+        * genuinely absent -> ``MISSING``. Only two things count as absent: an
+          ``OSError`` (there was nothing to exec) or cargo's "no such command"
+          (the subcommand is not installed). Neither means the tool is there;
+        * anything else — the binary ran and answered non-zero, or the probe
+          timed out — is a tool that is *present but unverified*. It is recorded
+          as ``ERROR``/available rather than "missing", and left available so its
+          real run reports the truth instead of being skipped.
+        """
+        result = context.runner.run(command, timeout=timeout)
+        if result.exit_code == 0 and not result.timed_out:
+            text = (result.stdout or result.stderr or "").strip()
+            version = text.splitlines()[0] if text else None
+            return DetectionResult(self.id, "INSTALLED", True, version=version)
+        combined = f"{result.stdout}\n{result.stderr}"
+        os_absent = result.exit_code is None and bool(result.error) and not result.timed_out
+        if os_absent or ABSENT_PROBE_RE.search(combined):
+            prereq = list(absent_prerequisites or [])
+            return DetectionResult(
+                self.id,
+                "MISSING",
+                False,
+                message=absent_message,
+                missing_prerequisites=prereq,
+                prerequisites_met=not prereq,
+            )
+        # The binary ran and answered non-zero, or hung: present but unverified.
+        if result.timed_out:
+            why = "its version probe timed out"
+        else:
+            lines = [ln for ln in (result.stderr or result.stdout or "").splitlines() if ln.strip()]
+            first = lines[0] if lines else "no output"
+            why = f"its version probe failed (exit {result.exit_code}): {first}"
+        return DetectionResult(
+            self.id,
+            "ERROR",
+            True,
+            version=None,
+            message=f"{self.display_name} is installed but {why}",
+        )
+
     def make_result(
         self,
         *,
@@ -240,6 +297,14 @@ class Tool(ABC):
             json.dumps(result.to_dict(), indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+
+
+# cargo says this when a subcommand genuinely is not installed. It is the one
+# reliable "absent" signal a `cargo <plugin> --version` probe gives that is not an
+# OSError: the plugin is not there at all, as opposed to a plugin that ran and
+# rejected the probe. Without this, a missing plugin (also a non-zero exit) would
+# be mistaken for a present-but-broken one.
+ABSENT_PROBE_RE = re.compile(r"no such (?:command|subcommand)", re.IGNORECASE)
 
 
 CLIPPY_LOC_RE = re.compile(

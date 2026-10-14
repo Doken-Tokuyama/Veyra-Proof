@@ -49,6 +49,26 @@ class TestApplyLockPolicy:
             )
             assert argv == ["cargo", "build", flag, "--release"]
 
+    def test_version_probes_are_not_locked(self, tmp_path):
+        # A probe builds nothing. `cargo nextest --version` rejects the flag at
+        # the top level (exit 2), so detection reported an installed
+        # cargo-nextest as "not installed" on any workspace with a lockfile.
+        _lock(tmp_path)
+        for argv in (
+            ["cargo", "nextest", "--version"],
+            ["cargo", "build", "--version"],
+            ["cargo", "+nightly", "clippy", "-V"],
+        ):
+            assert apply_lock_policy(argv, cwd=tmp_path) == argv
+
+    def test_version_flags_after_the_harness_separator_still_lock(self, tmp_path):
+        # `cargo test -- --version` filters tests by that name; it still builds.
+        _lock(tmp_path)
+        argv = apply_lock_policy(
+            ["cargo", "test", "--workspace", "--", "--version"], cwd=tmp_path
+        )
+        assert argv == ["cargo", "test", "--locked", "--workspace", "--", "--version"]
+
     def test_plugin_shape_keeps_its_own_subcommand(self, tmp_path):
         # `cargo nextest run --workspace` would break if the flag were inserted
         # between the plugin and its subcommand.

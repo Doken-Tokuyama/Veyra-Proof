@@ -34,12 +34,11 @@ class ClippyTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
-        r = context.runner.run(["cargo", "clippy", "--version"], timeout=20)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver)
-        missing = [] if shutil.which("rustup") else ["rustup"]
-        return DetectionResult(self.id, "MISSING", False, message="clippy not available", missing_prerequisites=missing, prerequisites_met=not missing)
+        prereq = [] if shutil.which("rustup") else ["rustup"]
+        return self.detect_via_version(
+            context, ["cargo", "clippy", "--version"],
+            absent_message="clippy not available", absent_prerequisites=prereq,
+        )
 
     def install_plan(self, context: AuditContext):
         if not shutil.which("rustup"):

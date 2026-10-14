@@ -23,13 +23,12 @@ class RustfmtTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH", prerequisites_met=False, missing_prerequisites=["cargo"])
-        r = context.runner.run(["cargo", "fmt", "--version"], timeout=20)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver)
-        if not shutil.which("rustup"):
-            return DetectionResult(self.id, "MISSING", False, message="rustfmt unavailable; rustup missing", prerequisites_met=False, missing_prerequisites=["rustup"])
-        return DetectionResult(self.id, "MISSING", False, message="rustfmt component not installed")
+        has_rustup = bool(shutil.which("rustup"))
+        return self.detect_via_version(
+            context, ["cargo", "fmt", "--version"],
+            absent_message="rustfmt component not installed" if has_rustup else "rustfmt unavailable; rustup missing",
+            absent_prerequisites=[] if has_rustup else ["rustup"],
+        )
 
     def install_plan(self, context: AuditContext):
         if not shutil.which("rustup"):

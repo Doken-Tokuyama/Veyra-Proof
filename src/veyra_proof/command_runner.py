@@ -38,6 +38,11 @@ LOCKFILE_WRITING_SUBCOMMANDS = frozenset(
 # A flag that already decides the question; adding --locked would conflict.
 LOCK_DECIDING_FLAGS = ("--locked", "--frozen", "--offline")
 
+# Version probes run nothing that could write a lockfile, and some cargo
+# plugins reject --locked at the top level: `cargo nextest --locked --version`
+# exits 2, so detection reported an installed cargo-nextest as missing.
+VERSION_FLAGS = ("--version", "-V")
+
 CARGO_EXECUTABLES = {"cargo", "cargo.exe"}
 
 
@@ -87,6 +92,14 @@ def apply_lock_policy(
     if allow_update:
         return argv
     if any(flag in argv for flag in LOCK_DECIDING_FLAGS):
+        return argv
+    # Version flags only count before the harness separator: `cargo test --
+    # --version` runs tests filtered by that name and still builds.
+    try:
+        harness = argv.index("--")
+    except ValueError:
+        harness = len(argv)
+    if any(flag in argv[index + 1 : harness] for flag in VERSION_FLAGS):
         return argv
     workdir = Path(cwd).resolve() if cwd else Path.cwd()
     if not (workdir / "Cargo.lock").is_file():

@@ -22,15 +22,17 @@ class CargoMacheteTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
-        r = context.runner.run(["cargo", "machete", "--version"], timeout=20)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver)
-        # older versions may not support --version; try running help
+        det = self.detect_via_version(
+            context, ["cargo", "machete", "--version"], absent_message="cargo-machete not installed"
+        )
+        if det.status == "INSTALLED":
+            return det
+        # Older cargo-machete may reject --version; confirm it is present with
+        # --help before trusting the failure as absence.
         r2 = context.runner.run(["cargo", "machete", "--help"], timeout=20)
         if r2.exit_code == 0 and not r2.timed_out:
             return DetectionResult(self.id, "INSTALLED", True, version="unknown")
-        return DetectionResult(self.id, "MISSING", False, message="cargo-machete not installed")
+        return det
 
     def install_plan(self, context: AuditContext):
         return cargo_install_plan(self.id, self.display_name, "cargo-machete")

@@ -23,14 +23,19 @@ class MiriTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         if not shutil.which("cargo") or not shutil.which("rustup"):
             return DetectionResult(self.id, "MISSING", False, message="cargo/rustup required", prerequisites_met=False, missing_prerequisites=["cargo", "rustup"])
-        r = context.runner.run(["cargo", "+nightly", "miri", "--version"], timeout=30)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver)
-        missing = []
+        # Nightly missing is absence, not a broken tool: `cargo +nightly miri`
+        # cannot even start, so decide that before probing rather than reading
+        # cargo's "toolchain 'nightly' is not installed" as a failed version
+        # probe from a tool that is present.
         if not context.platform.nightly_available:
-            missing.append("nightly toolchain")
-        return DetectionResult(self.id, "MISSING", False, message="Miri not available on nightly", missing_prerequisites=missing, prerequisites_met=not missing)
+            return DetectionResult(
+                self.id, "MISSING", False, message="Miri not available on nightly",
+                missing_prerequisites=["nightly toolchain"], prerequisites_met=False,
+            )
+        return self.detect_via_version(
+            context, ["cargo", "+nightly", "miri", "--version"],
+            absent_message="Miri not available on nightly", timeout=30,
+        )
 
     def install_plan(self, context: AuditContext):
         if not shutil.which("rustup"):

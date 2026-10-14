@@ -23,11 +23,9 @@ class DylintTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
-        r = context.runner.run(["cargo", "dylint", "--version"], timeout=20)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver)
-        return DetectionResult(self.id, "MISSING", False, message="cargo-dylint not installed")
+        return self.detect_via_version(
+            context, ["cargo", "dylint", "--version"], absent_message="cargo-dylint not installed"
+        )
 
     def install_plan(self, context: AuditContext):
         return InstallPlan(

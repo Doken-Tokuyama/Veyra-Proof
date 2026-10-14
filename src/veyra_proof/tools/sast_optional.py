@@ -24,11 +24,10 @@ class SemgrepTool(Tool):
         path = shutil.which("semgrep")
         if not path:
             return DetectionResult(self.id, "MISSING", False, message="semgrep not on PATH (not auto-installed)")
-        r = context.runner.run(["semgrep", "--version"], timeout=20)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver, path=path)
-        return DetectionResult(self.id, "MISSING", False, message="semgrep not executable")
+        det = self.detect_via_version(context, ["semgrep", "--version"], absent_message="semgrep not executable")
+        if det.available:
+            det.path = path
+        return det
 
     def install_plan(self, context: AuditContext):
         return None
@@ -92,11 +91,10 @@ class CodeQLTool(Tool):
         path = shutil.which("codeql")
         if not path:
             return DetectionResult(self.id, "MISSING", False, message="codeql not on PATH (not auto-installed)")
-        r = context.runner.run(["codeql", "version"], timeout=20)
-        if r.exit_code == 0 and not r.timed_out:
-            ver = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
-            return DetectionResult(self.id, "INSTALLED", True, version=ver, path=path)
-        return DetectionResult(self.id, "MISSING", False, message="codeql not executable")
+        det = self.detect_via_version(context, ["codeql", "version"], absent_message="codeql not executable")
+        if det.available:
+            det.path = path
+        return det
 
     def install_plan(self, context: AuditContext):
         return None
