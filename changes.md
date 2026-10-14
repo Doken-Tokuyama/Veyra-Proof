@@ -1,4 +1,4 @@
-## Unreleased
+## What changed in v0.6.0
 
 - **The release gate asks the index what it serves, and compares it with the artifact it
   checked.** Every other step looks at this checkout, and nobody installs this checkout:
