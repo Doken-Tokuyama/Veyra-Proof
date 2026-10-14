@@ -60,6 +60,9 @@ class Harness:
 # Locations verified against each vendor's documentation. Keep in sync with the
 # table in README.md; `python3 install.py --list` prints the resolved paths.
 HARNESSES: tuple[Harness, ...] = (
+    # The vendor-neutral directory of the open skill standard, shared by
+    # `npx skills add` and by Freebuff Desktop's local-skill import.
+    Harness("agents", "{home}/.agents/skills", "{home}/.agents"),
     Harness("cursor", "{home}/.cursor/skills", "{home}/.cursor"),
     Harness("claude", "{home}/.claude/skills", "{home}/.claude"),
     Harness("codex", "{home}/.codex/skills", "{home}/.codex"),

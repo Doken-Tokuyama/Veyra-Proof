@@ -1,3 +1,92 @@
+## What changed in v0.4.3
+
+Governance for the copies of the agent skill, and a release gate that refuses an
+inconsistent one. The audit itself is unchanged: same CLI, same exit codes, same
+`report.json`/`report.md` schema as 0.4.2.
+
+- **The skill now names the release it documents.** `.cursor/skills/veyra-proof/SKILL.md`
+  and `Veyra/skills/veyra-proof/SKILL.md` declared `metadata.version: "0.4.0"` while the
+  package was 0.4.2 — the same drift 0.4.2 fixed in `__version__`, in a third copy of the
+  number that no guard covered. Both read 0.4.2 now, and
+  `tests/test_docs_match_code.py::TestTheReportedVersionIsThePublishedOne` fails when the
+  skill and `pyproject.toml` disagree.
+- **`~/.agents/skills` is a fan-out target.** It is the vendor-neutral directory of the open
+  skill standard, and Freebuff Desktop imports local skills from `~/.claude/skills` and
+  `~/.agents/skills` in that order — so the second wins and a stale copy there is the one
+  that gets imported. The fan-out reported seven current copies while this one sat unmanaged.
+  `Veyra/install.py` and both README tables gained the same harness.
+- **The README documents why the Freebuff Desktop account copy is not a fan-out target.**
+  The app owns `~/.config/freebuff-desktop/account-skills/`, re-materializes it from the
+  Cloud snapshot every sync, and only imports a local skill whose name is *not* already in
+  Cloud — which is how `veyra-proof` kept a pre-0.4.0 copy after the repo moved on.
+- **`scripts/check_account_skill.py` reports that copy without repairing it.** The store is
+  a cache the app rewrites, so writing to it would be discarded and `sync_skill.py --check`
+  cannot see it at all — it stayed green while the account copy served pre-0.4.0 text. The
+  check compares the canonical skill against the cached Cloud snapshot (`current.json`) and
+  against each materialized `veyra-proof` directory, labels each `current`, `OLDER` or
+  `DIFFERS` with the version and byte counts behind the verdict, and exits 1 on a lag. It
+  never writes, including on the failure path, and a machine with no store exits 0.
+- **One maintainer command checks both copies.** `scripts/check_skills.py` runs the fan-out check
+  and the account-copy check in one pass and prints both reports plus a verdict, so neither can be
+  skipped by forgetting the other. It applies one policy: harness drift fails, because this
+  repository can repair it; the account copy warns, because it cannot, and a check that can never
+  go green is one people learn to ignore; a sub-check that cannot run (exit 2) fails, as a defect
+  in the tooling.
+- **A missing canonical skill is a usage error, not drift.** `check_account_skill.py` exited 1 when
+  `--root` held no canonical skill, which is the code that means "the account copy is older" — a
+  broken checkout could wear the verdict of a stale cache. It exits 2 now, and `main()` returns an
+  exit code on every path instead of raising one, matching `sync_skill.py`.
+- **The pre-release checklist is one command that refuses to cut an inconsistent tag.**
+  `scripts/pre_release.py --tag vX.Y.Z` runs the suite, the copy checks, a build with
+  `twine check`, and the audit-evidence check, then creates the tag only if every step passed.
+  It refuses a tag when a step failed, when `--skip` was used, when the name is not the declared
+  version, when the tag exists, and when the tracked skill files are uncommitted — the sdist is
+  built from the tagged commit, so local agreement proves nothing about what ships. Git has no
+  pre-tag hook, so `git tag` directly still bypasses the gate; the README says so rather than
+  implying enforcement it does not have.
+- **A missing `twine`, or a `dist/` full of an older release, can no longer pass as a build
+  check.** Each command's argv is built immediately before it runs. Building them up front made
+  `twine check` validate the artefacts a *previous* release had left in `dist/`, and on a clean
+  checkout it would have validated nothing at all while the step still reported PASS. Only the
+  artefacts of the declared version are checked, and an empty `dist/` fails with a message.
+- **A skill file git never tracks is caught.** `git status` hides ignored paths, so the tag gate
+  checks tracking explicitly: a skill file matched by a global exclude (`.cursor/` in one real
+  case) reads as clean while a release built from the committed tree would carry the older
+  version silently.
+- **CI runs that check as an advisory job.** `account-skill` reports the result as a warning
+  annotation and in the run summary, and does not fail the build: the store is machine-local
+  and owned by the app, so a stale Cloud cache must not turn somebody else's pull request
+  red, and nothing in this repository can repair it. On GitHub's own runners it reports
+  `no account store` and passes; the annotation appears on a self-hosted runner or a
+  developer machine. A checker that fails to run (exit 2 or worse) still fails the job,
+  because that is a defect here rather than a condition of someone's machine.
+- **`SKILL-COPIES.md` says which copy of the skill you are looking at, and whose it is.** Four
+  copies of the same two files live on one machine — the canonical skill in this checkout, the
+  harness fan-out, the Freebuff Desktop account copy and the published copy — and the prose
+  explaining them was spread across four places in the README. The guide is one table naming the
+  writer, the owner, the watcher and the repair for each, plus a recipe for identifying a copy
+  from its path, the commands with their exit codes, and what none of them can do. It is guarded
+  by `tests/test_skill_copies_guide.py`, so a harness added to `GLOBAL_TARGETS`, a renamed
+  `.veyra-skill-sync` marker or a changed account-store path fails the suite until the guide
+  follows, and it is listed in `MANIFEST.in` because the sdist carries three of those four copies.
+
+- **The tag gate creates the annotated tag the history uses, not a lightweight one.** Every
+  existing tag reads `vX.Y.Z — <headline>`, which is also the release name GitHub shows; `git tag
+  NAME` alone makes a lightweight tag, the one tag in the history that carries no name and that
+  `git describe` reduces to a bare hash. The gate now runs `git tag -a` itself and takes
+  `--title TEXT` for the headline, refusing `--title` without `--tag` rather than dropping it
+  silently. `tests/test_pre_release.py` asserts the object type is `tag`, not `commit`.
+- **`sync_skill.py` says which copy it is reporting, and who owns the ones it is not.** Four
+  copies of this skill can sit on one machine at once, and the check printed eight paths under a
+  bare `canonical` line with no way to tell which copy the reader was looking at or that the Cloud
+  account copy and the published copy existed at all — silence about them read as a pass. The
+  report now opens with `copy  harness fan-out — owned by this repository`, marks the canonical
+  copy as the one you edit, and closes by naming the two copies it never writes, with the owner of
+  each and the command that reports the account one. The legend prints on the write path too, and
+  on the run that detects no harness at all, which is the run where a reader most needs the map.
+  `tests/test_skill_document.py` pins it to the code: the store the legend names must be the store
+  `check_account_skill.py` inspects, and the owners it prints must be the ones the guide names.
+
 ## What changed in v0.4.2
 
 A metadata release, published because the alternative was leaving a wrong version on PyPI.

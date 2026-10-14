@@ -263,6 +263,8 @@ The demo fixture ships a real CLI (`tests/fixtures/demo_crate/src/main.rs`) wire
 
 Canonical skill (model-invoked): `.cursor/skills/veyra-proof/`. It follows the open `SKILL.md` standard, so the same two files work across harnesses.
 
+Four copies of this skill end up on a normal machine — this canonical one, the harness fan-out, the Freebuff Desktop account copy and the published copy — and only one of them is yours to edit. [SKILL-COPIES.md](SKILL-COPIES.md) says which one you are looking at, who owns the write, and what puts it right.
+
 Fan it out to every harness installed on this machine:
 
 ```bash
@@ -277,6 +279,7 @@ Renaming the skill would otherwise leave a live copy behind in every harness, st
 
 | Harness | Global | Project |
 |---|---|---|
+| Agent Skills (universal) | `~/.agents/skills` | — |
 | Cursor | `~/.cursor/skills` | `.cursor/skills` |
 | Claude Code | `~/.claude/skills` | `.claude/skills` |
 | Codex | `~/.codex/skills` | — |
@@ -291,6 +294,25 @@ Renaming the skill would otherwise leave a live copy behind in every harness, st
 | Trae | — | `.trae/skills` |
 
 A harness counts as installed when its home directory exists; `--all` overrides that. Writes are atomic (temp file plus rename), compared by SHA-256 rather than mtime, and logged to `~/.local/share/veyra-skill-sync.log`.
+
+### The Freebuff Desktop account copy
+
+Freebuff Desktop keeps its own copy of every account skill under `~/.config/freebuff-desktop/account-skills/<account>/<revision>/`, and that copy is deliberately **not** a fan-out target. The app owns it: it re-materializes it from the Cloud snapshot every time it syncs, so a local edit there is overwritten within about a second, and `--check` would report drift the script cannot repair. It is a cache, not a copy.
+
+It goes stale for a different reason. On each sync the app imports your local skills — `~/.claude/skills` and `~/.agents/skills`, in that order, so the second wins — and adds only the skills whose **name is not already in the Cloud snapshot**. `veyra-proof` is already there, so a newer local copy is never re-imported and the account copy keeps the text it was first imported with. That is also why `~/.agents/skills` is a managed target above: without it the app would import the older of its two sources.
+
+After an edit, the account copy catches up only when the stale entry is removed in the app's skill manager, which lets the next sync re-import the corrected local copy. Until then, read it as a cached older release.
+
+Because `sync_skill.py --check` cannot see this store, a second check reports it without touching it. Run both in one pass with one verdict:
+
+```bash
+python3 scripts/check_skills.py               # both checks, always both, one verdict
+python3 scripts/check_account_skill.py        # just the account copy, change nothing (exit 1 if it lags)
+```
+
+`check_skills.py` runs the fan-out check and the account check every time and prints both reports plus a verdict, so neither can be forgotten. It applies one policy to the two: **harness drift fails**, because this repository can repair it, and **the account copy warns without failing**, because it cannot — a contributor whose Cloud cache is stale would otherwise never see a green check, and a check that can never go green is one people learn to ignore. A sub-check that cannot run at all (exit 2) fails the command, since that is a defect in the tooling rather than an out-of-date copy.
+
+It compares the canonical skill against both faces of the store — the cached Cloud snapshot (`current.json`) and each materialized `veyra-proof` directory, which is the file an agent reads today — and prints `current`, `OLDER` or `DIFFERS` per copy with the version and byte counts behind the verdict. Exit 1 means the account copy lags the repo; the output names the one action that fixes it. A machine with no account store exits 0: absence is not drift. CI runs the same script as an advisory job, so drift is visible in a workflow run without failing it.
 
 `Veyra/` is a standalone, publishable copy of this skill for public distribution. It carries its own `install.py` (standard library only, no `--all` needed) and is kept byte-identical to the canonical copy by `tests/test_skill_document.py`.
 
@@ -309,11 +331,12 @@ Triggers include: install veyra, auditar Rust, audit a Cargo workspace, wire vey
 - Never edit inside `HARD_RULES_START` / `HARD_RULES_END`.
 - Prefer one bounded add, delete, or replace over a wholesale rewrite.
 - Keep `SKILL.md` under ~1,600 tokens; move lookup-only material to `reference.md`.
+- Keep the frontmatter `metadata.version` equal to `pyproject.toml`'s version, and bump all three together (`pyproject.toml`, `src/veyra_proof/__init__.py`, the skill). `tests/test_docs_match_code.py` fails if the skill names a release that is not the one shipping.
 - Stay harness-neutral: no absolute machine paths, no vendor CLI names, no editor-only commands.
 - If you adopt [SkillOpt](https://github.com/microsoft/SkillOpt), move the hard rules into its `SLOW_UPDATE` region, which normal edit patches cannot modify.
-- After any edit: `python3 -m pytest` then `python3 scripts/sync_skill.py`.
+- After any edit: `python3 -m pytest` then `python3 scripts/check_skills.py`. If the harness copies drifted, repair them with `python3 scripts/sync_skill.py`.
 - After renaming the skill or the folder: `python3 scripts/sync_skill.py` then `python3 scripts/sync_skill.py --prune --apply`.
-- Before tagging a release: `python3 -m build && twine check dist/*`, and `python3 scripts/ci_assert_evidence.py tests/fixtures/demo_crate` to confirm the auditor still produces evidence that matches its own verdict.
+- Before tagging a release: `python3 scripts/pre_release.py --tag v0.4.3 --title "..."`. That is the whole checklist in one command; see [The pre-release checklist](#the-pre-release-checklist) for the ways it refuses.
 
 ## Packaging with PyInstaller
 
@@ -341,10 +364,13 @@ pyinstaller --onefile --name veyra src/veyra_proof/__main__.py
 |---|---|
 | `test` | The full test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
 | `audit` | A real audit of the demo crate on a real Rust toolchain, followed by a check that the evidence on disk backs the verdict |
+| `account-skill` | Whether the Freebuff Desktop account copy of the skill still matches the canonical one — advisory, see below |
 
 The `test` suite mocks `subprocess.run`, so on its own it cannot catch a broken tool invocation. The `audit` job closes that gap: it runs `scripts/ci_assert_evidence.py`, which executes the auditor for real and then requires that every tool reported `OK` has a log on disk *and* a per-tool `result.json` agreeing with the summary on both status and exit code. Two independently written artifacts must tell the same story.
 
 That check has its own tests (`tests/test_ci_assert_evidence.py`), which inject each fault it is meant to catch. A verification script that cannot fail is worse than none: it manufactures the false confidence this project exists to refuse.
+
+The `account-skill` job is advisory on purpose, and it is worth being exact about what it does and does not do. GitHub's own runners have no Freebuff Desktop store, so there it prints `no account store` and passes; its value is on a self-hosted runner or a developer machine that has one, where a lagging copy surfaces as a warning annotation and in the run summary rather than as a red build. A stale Cloud cache must not fail somebody's pull request, because that cache is machine-local and this repository cannot repair it. The step still fails the job when `scripts/check_account_skill.py` exits 2 or worse — a checker that cannot run is a defect here, not a condition of someone's machine.
 
 ## Publishing to PyPI
 
@@ -357,13 +383,29 @@ One-time setup on PyPI, for the project `veyra-proof`:
 
 The sdist carries the agent skill, the fan-out script, the CI workflows and the test suite, not just the importable package — half of what this project ships is the skill. `.cursor` is listed file by file in `MANIFEST.in` rather than by wildcard, so a stray editor or agent state directory in a working copy can never ride along.
 
-Check a build locally before tagging:
+## The pre-release checklist
+
+One command runs the whole checklist and cuts the tag:
 
 ```bash
-python -m pip install --upgrade build twine
-python -m build
-twine check dist/*
+python -m pip install --upgrade build twine   # the build step needs both
+python scripts/pre_release.py --tag v0.4.3 --title "one line the release can be read by"
 ```
+
+Four steps, all reported whether or not an earlier one failed, so one pass tells you everything that is wrong:
+
+| Step | What it proves |
+|---|---|
+| `tests` | The suite, which carries the copy-parity, version and docs guards |
+| `copies` | Every harness copy of the skill still matches the canonical one |
+| `build` | An sdist and a wheel, then `twine check` on **this version's** artefacts only |
+| `evidence` | A real audit whose on-disk evidence matches its own verdict |
+
+`--tag NAME` creates the tag only after every step has passed, as an **annotated** tag reading `NAME — TITLE` (`--title`), which is the form every existing tag in this repository uses and the same string GitHub shows as the release name; `git tag NAME` alone would make a lightweight tag, the one tag in the history that `git describe` reduces to a bare hash. It refuses several ways round: when any step failed; when `--skip` was used, because a tag gated by a partial checklist is not gated; when `NAME` is not `v` plus the version `pyproject.toml` declares; when the tag already exists; and when the tracked skill files are uncommitted — that last one matters because `publish.yml` builds the sdist from the tagged commit, so a working tree whose copies all agree locally still says nothing about what ships. `git status` alone cannot see that: it hides ignored paths, so a skill file matched by an ignore rule reads as clean while git would never commit it, so tracking is checked explicitly.
+
+**The limit, stated plainly: git has no pre-tag hook.** `python scripts/pre_release.py` (no `--tag`) runs the same checklist and reports; anyone who runs `git tag` directly bypasses all of it. This gate is real only for people who tag through it.
+
+A stale Cloud account copy does not block a release: that cache is machine-local and is not what a release ships. The `copies` step reports it as a warning and passes.
 
 ## Tests
 

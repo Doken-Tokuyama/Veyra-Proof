@@ -29,6 +29,7 @@ detects every harness already present on your machine. It copies the skill into:
 
 | Harness | `--harness` | Global | Project |
 |---|---|---|---|
+| Agent Skills (universal) | `agents` | `~/.agents/skills` | — |
 | Cursor | `cursor` | `~/.cursor/skills` | — |
 | Claude Code | `claude` | `~/.claude/skills` | — |
 | Codex | `codex` | `~/.codex/skills` | — |

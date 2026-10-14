@@ -214,6 +214,12 @@ class TestTheReportedVersionIsThePublishedOne:
     wheel wrote recorded `"version": "0.3.0"` as the tool that produced the evidence.
     The version lived in two files and only `pyproject.toml` was bumped, so the check
     is on the pair, not on either one alone.
+
+    The skill is a third copy of the same number, and it drifted the same way: its
+    `metadata.version` read "0.4.0" while the package was 0.4.2. Nothing failed,
+    because the skill's own guards check its name, description, frozen region and
+    token budget but never its version, so the file simply misnamed the release it
+    documents.
     """
 
     def test_the_module_version_matches_pyproject(self):
@@ -226,6 +232,25 @@ class TestTheReportedVersionIsThePublishedOne:
             f"src/veyra_proof/__init__.py says {__version__} but pyproject.toml declares "
             f"{declared}: bump both, or the CLI and its evidence misname the version"
         )
+
+    def test_the_skill_version_matches_pyproject(self):
+        """Both copies of the skill carry the number, so both are checked."""
+        pyproject = README.parent / "pyproject.toml"
+        declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+        for skill in (
+            README.parent / ".cursor" / "skills" / "veyra-proof" / "SKILL.md",
+            README.parent / "Veyra" / "skills" / "veyra-proof" / "SKILL.md",
+        ):
+            text = skill.read_text(encoding="utf-8")
+            assert text.startswith("---\n"), f"{skill} must open with YAML frontmatter"
+            frontmatter = text.split("---", 2)[1]
+            match = re.search(r'^\s*version:\s*"([^"]+)"\s*$', frontmatter, re.M)
+            assert match, f"{skill} declares no metadata.version"
+            assert match.group(1) == declared, (
+                f"{skill} says {match.group(1)} but pyproject.toml declares {declared}: "
+                "the skill would document a release that is not the one shipping"
+            )
 
     def test_the_cli_reports_the_module_version(self):
         """The string a user reads has to be the one the package is installed as."""

@@ -19,6 +19,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO_ROOT / ".cursor" / "skills" / "veyra-proof"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 SYNC_SCRIPT = REPO_ROOT / "scripts" / "sync_skill.py"
+ACCOUNT_SCRIPT = REPO_ROOT / "scripts" / "check_account_skill.py"
+COPIES_GUIDE = REPO_ROOT / "SKILL-COPIES.md"
 PUBLISH_DIR = REPO_ROOT / "Veyra"
 PUBLISH_SKILL_DIR = PUBLISH_DIR / "skills" / "veyra-proof"
 PUBLISH_INSTALLER = PUBLISH_DIR / "install.py"
@@ -153,6 +155,16 @@ def test_skill_holds_no_maintainer_facing_sections() -> None:
 # --------------------------------------------------------------------------
 
 
+def _load_account():
+    """Import scripts/check_account_skill.py, to read the store it inspects."""
+    spec = importlib.util.spec_from_file_location("check_account_skill", ACCOUNT_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_sync():
     """Import scripts/sync_skill.py, which is a script rather than a package module."""
     spec = importlib.util.spec_from_file_location("sync_skill", SYNC_SCRIPT)
@@ -251,6 +263,76 @@ def test_check_reports_vacuous_success_honestly(sync, tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert "all targets in sync" not in out
     assert "no installed harness detected" in out
+
+
+def test_check_says_which_copy_it_reports_and_who_owns_it(sync, tmp_path, capsys) -> None:
+    """Four copies of this skill can be on a machine; the report has to place itself.
+
+    A reader who finds a copy and runs the check should not need SKILL-COPIES.md to
+    learn whether this is the copy they may edit.
+    """
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    sync.main(argv + ["--check"])
+    out = capsys.readouterr().out
+    assert sync.REPORTED_COPY in out
+    assert "harness fan-out" in out
+    assert "owned by this repository" in out
+    assert "the copy you edit" in out
+
+
+def test_check_names_the_copies_it_does_not_report(sync, tmp_path, capsys) -> None:
+    """Staying silent about the other copies reads as 'and those are fine too'."""
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    sync.main(argv + ["--check"])
+    out = capsys.readouterr().out
+    assert str(sync.ACCOUNT_STORE_REL) in out
+    assert "Freebuff Desktop app" in out
+    assert "check_account_skill.py" in out
+    assert str(sync.PUBLISHED_REL) in out
+    assert "byte-identical" in out
+
+
+def test_the_two_scripts_name_the_same_account_store(sync) -> None:
+    """The report's pointer to the account check must point at the real store."""
+    assert _load_account().DEFAULT_STORE_REL == sync.ACCOUNT_STORE_REL
+
+
+def test_the_legend_prints_even_with_no_harness_detected(sync, tmp_path, capsys) -> None:
+    """The run with nothing to report is the one where a reader needs the map."""
+    root, _, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+
+    assert sync.main(argv + ["--check"]) == 0
+    out = capsys.readouterr().out
+    assert "no installed harness detected" in out
+    assert "harness fan-out" in out
+    assert "Cloud account copy" in out
+
+
+def test_the_write_path_names_the_same_copies(sync, tmp_path, capsys) -> None:
+    """One report, one frame: the legend is not a --check-only decoration."""
+    root, home, argv = _sandbox(tmp_path)
+    _seed_skill(root)
+    (home / ".cursor").mkdir()
+
+    assert sync.main(argv) == 0
+    out = capsys.readouterr().out
+    assert sync.REPORTED_COPY in out
+    assert "not owned or reported here" in out
+
+
+def test_the_report_and_the_guide_name_the_same_owners(sync) -> None:
+    """The output and SKILL-COPIES.md may not tell the reader different stories."""
+    guide = COPIES_GUIDE.read_text(encoding="utf-8")
+    assert str(sync.ACCOUNT_STORE_REL) in guide
+    assert str(sync.PUBLISHED_REL) in guide
+    assert "Freebuff Desktop app" in guide
 
 
 def test_sync_propagates_edits_to_every_detected_harness(sync, tmp_path) -> None:

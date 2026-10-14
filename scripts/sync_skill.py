@@ -50,6 +50,42 @@ MARKER = ".veyra-skill-sync"
 # Directories that never belong in a materialized skill copy.
 IGNORED = {"__pycache__", ".DS_Store", ".git"}
 
+# Four copies of this skill can sit on one machine at once, and this command owns
+# exactly one of them. So it says which — and names the ones it never writes or
+# reports, because an output that covers one copy of four and stays silent about
+# the rest invites the reader to conclude the rest are fine. `SKILL-COPIES.md`
+# carries the long version; this is the part that has to survive on its own in a
+# terminal.
+REPORTED_COPY = "harness fan-out — owned by this repository; this script writes them"
+
+# Must match ``check_account_skill.DEFAULT_STORE_REL``; tests/test_skill_document.py
+# asserts the two cannot drift apart.
+ACCOUNT_STORE_REL = Path(".config") / "freebuff-desktop" / "account-skills"
+
+# The standalone, publishable copy the sdist carries, kept byte-identical to the
+# canonical skill by tests/test_skill_document.py.
+PUBLISHED_REL = Path("Veyra") / "skills" / SKILL_NAME
+
+# (label, location, who owns it and how to act on it) — printed by every run.
+UNREPORTED_COPIES = (
+    (
+        "Cloud account copy",
+        f"~/{ACCOUNT_STORE_REL}/",
+        (
+            "the Freebuff Desktop app owns it and re-materializes it from Cloud;",
+            "report it with python3 scripts/check_account_skill.py",
+        ),
+    ),
+    (
+        "published copy",
+        f"{PUBLISHED_REL}/",
+        (
+            "this repository owns it; the suite keeps it byte-identical to the",
+            "canonical skill",
+        ),
+    ),
+)
+
 
 @dataclass(frozen=True)
 class Target:
@@ -71,6 +107,12 @@ class Target:
 # Verified against each vendor's own documentation. Global paths come first so
 # they win the de-duplication pass; a project copy is only a fallback.
 GLOBAL_TARGETS = (
+    # The vendor-neutral directory of the open skill standard, shared by
+    # `npx skills add` and by Freebuff Desktop's local-skill import. It is listed
+    # first because it is the only global target that is not one vendor's private
+    # folder, and because Freebuff Desktop reads it *after* ~/.claude/skills — so
+    # a stale copy here is the one that actually gets imported.
+    Target("agents", "global", "{home}/.agents/skills", "{home}/.agents"),
     Target("cursor", "global", "{home}/.cursor/skills", "{home}/.cursor"),
     Target("claude", "global", "{home}/.claude/skills", "{home}/.claude"),
     Target("codex", "global", "{home}/.codex/skills", "{home}/.codex"),
@@ -141,6 +183,20 @@ def audit(line: str) -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a", encoding="utf-8") as handle:
         handle.write(f"{datetime.datetime.now().isoformat()}  {line}\n")
+
+
+def print_other_copies() -> None:
+    """Name the copies this command does not own, so its silence is not a pass.
+
+    A reader who finds a copy of this skill and runs the check has to be able to
+    tell which copy the report is about, and what the ones missing from it are.
+    """
+    print()
+    print("other copies of this skill, not owned or reported here:")
+    for label, location, note in UNREPORTED_COPIES:
+        print(f"  {label:<20} {location}")
+        for line in note:
+            print(f"  {'':<20} {line}")
 
 
 def write_marker(destination: Path, skill_name: str) -> None:
@@ -277,7 +333,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"canonical skill is empty: {canonical}", file=sys.stderr)
         return 2
 
+    print(f"copy       {REPORTED_COPY}")
     print(f"canonical  {canonical}")
+    print("           the copy you edit; the harness copies below are compared against it")
     print(f"files      {', '.join(str(f) for f in files)}")
     print()
 
@@ -286,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
     if not targets:
         print("no installed harness detected — nothing to sync")
         print("pass --all to create directories for every supported harness")
+        print_other_copies()
         return 0
 
     for target in targets:
@@ -331,6 +390,8 @@ def main(argv: list[str] | None = None) -> int:
             print("all targets in sync")
     else:
         print(f"audit log  {LOG_PATH}")
+
+    print_other_copies()
 
     if args.prune:
         stale_copies = find_stale_copies(root, home, targets)

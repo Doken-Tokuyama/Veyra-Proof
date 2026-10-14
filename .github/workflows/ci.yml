@@ -69,3 +69,59 @@ jobs:
       # and then a check that the evidence on disk matches the claim.
       - name: Run the auditor and verify its evidence
         run: python scripts/ci_assert_evidence.py tests/fixtures/demo_crate
+
+  account-skill:
+    name: account skill copy (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Advisory by design, and the script is standard library only, so this
+      # job installs nothing. The Freebuff Desktop store is machine-local and
+      # owned by that app: a stale Cloud cache on one contributor's machine must
+      # not fail somebody else's pull request, and nothing here can repair it.
+      # Drift is therefore reported as an annotation and in the run summary while
+      # the step stays green. Only a defect in the check itself fails the job —
+      # exit 2 or worse means the checker is broken, which is a bug in this repo.
+      # On GitHub's own runners there is no store, so this reports 'no account
+      # store' and passes; its value is on a self-hosted runner or a developer
+      # machine that has one.
+      - name: Report whether the account copy matches the canonical skill
+        shell: bash
+        run: |
+          set +e
+          python scripts/check_account_skill.py > account-skill.txt 2>&1
+          status=$?
+          set -e
+          cat account-skill.txt
+
+          {
+            echo "### Account skill copy"
+            echo
+            if [ "$status" -eq 0 ]; then
+              echo "Current, or no store on this runner."
+            else
+              echo "**The account copy does not match the canonical skill.**"
+            fi
+            echo
+            echo '```'
+            cat account-skill.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$status" in
+            0)
+              exit 0
+              ;;
+            1)
+              echo "::warning title=Account skill copy lags::The Freebuff Desktop account copy is older than the canonical skill. Remove the synced entry in the app's skill manager so the next sync re-imports it. Advisory: a machine-local cache never fails this build."
+              exit 0
+              ;;
+            *)
+              echo "::error title=Account skill check failed::scripts/check_account_skill.py exited $status, which is a defect in the check rather than a stale cache."
+              exit "$status"
+              ;;
+          esac
