@@ -10,8 +10,16 @@ it gets a test.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 from veyra_proof.tool_registry import all_tools
 
@@ -196,3 +204,40 @@ class TestTheLimitsAreWrittenDown:
 
 class TestTheScriptArgparseMatchesItsDocumentation:
     """The documented argument is a workspace root, not an evidence directory."""
+
+
+class TestTheReportedVersionIsThePublishedOne:
+    """A published wheel may not sign its own evidence with a different version.
+
+    0.4.1 shipped with `__version__` still reading "0.3.0": the distribution was
+    0.4.1, `veyra --version` answered `veyra 0.3.0`, and every `manifest.json` that
+    wheel wrote recorded `"version": "0.3.0"` as the tool that produced the evidence.
+    The version lived in two files and only `pyproject.toml` was bumped, so the check
+    is on the pair, not on either one alone.
+    """
+
+    def test_the_module_version_matches_pyproject(self):
+        pyproject = README.parent / "pyproject.toml"
+        declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+        from veyra_proof import __version__
+
+        assert __version__ == declared, (
+            f"src/veyra_proof/__init__.py says {__version__} but pyproject.toml declares "
+            f"{declared}: bump both, or the CLI and its evidence misname the version"
+        )
+
+    def test_the_cli_reports_the_module_version(self):
+        """The string a user reads has to be the one the package is installed as."""
+        from veyra_proof import __version__
+
+        env = dict(os.environ, PYTHONPATH=str(README.parent / "src"))
+        proc = subprocess.run(
+            [sys.executable, "-m", "veyra_proof", "--version"],
+            capture_output=True,
+            text=True,
+            cwd=README.parent,
+            env=env,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == f"veyra {__version__}"

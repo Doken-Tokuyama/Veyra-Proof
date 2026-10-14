@@ -1,3 +1,30 @@
+## What changed in v0.4.2
+
+A metadata release, published because the alternative was leaving a wrong version on PyPI.
+The audit itself is unchanged: same CLI, same exit codes, same report schema as 0.4.1.
+
+- **The version the tool reports is now the version it was installed as.** 0.4.1 shipped
+  with `src/veyra_proof/__init__.py` still reading `__version__ = "0.3.0"` while
+  `pyproject.toml` declared 0.4.1, so `veyra --version` answered `veyra 0.3.0` and every
+  `manifest.json` written by that wheel recorded `"version": "0.3.0"` — its own evidence
+  named the wrong tool. Both strings are 0.4.2 now.
+- `tests/test_docs_match_code.py` fails if the two disagree, or if the CLI does not report
+  the module's version. They were two independent strings and had already drifted once.
+
+## What changed in v0.4.1
+
+Detection only. The CLI, the exit codes and the `report.json`/`report.md` schema are
+unchanged from 0.3.0.
+
+- **An installed `cargo-nextest` is no longer reported as `MISSING`.** `--locked` was being
+  injected into version probes, and `cargo nextest --locked --version` exits 2; detection
+  read any non-zero exit as "not installed", so the check was skipped in silence on every
+  workspace with a lockfile. Version probes no longer take `--locked`.
+- **`absent` and `present-but-broken` are now distinct.** Only an `OSError` or cargo's
+  "no such command" counts as absent. A probe that ran and answered non-zero, or timed out,
+  leaves the tool available as `ERROR` instead of silently skipped, so its real run reports
+  the truth. `Tool.detect_via_version()` carries the rule for the 18 `detect()` sites.
+
 ## What changed in v0.4.0
 
 A skill-document and release-metadata release. The `veyra` CLI, exit codes, and
