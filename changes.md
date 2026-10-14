@@ -1,8 +1,9 @@
-## Unreleased
+## What changed in v0.4.4
 
-v0.4.3 is published and PyPI serves it; these fix two Windows-only defects that its CI
-run exposed. Both live in the release tooling and the tests, not in the auditor: the CLI,
-the exit codes and the report schema are untouched.
+A patch release fixing two Windows-only defects that v0.4.3's CI run exposed, plus the
+annotated-tag defect found while cutting it. All of them live in the release tooling, the
+fan-out script and the tests: the CLI, the exit codes and the audit schema are untouched
+from 0.4.3.
 
 - **The tag gate refused every tag on Windows.** `skill_release_block` compared
   `str(Path.relative_to(...))` — backslashes on Windows — against `git ls-files` output,

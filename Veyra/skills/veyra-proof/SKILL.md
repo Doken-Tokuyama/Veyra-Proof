@@ -2,7 +2,7 @@
 name: veyra-proof
 license: MIT
 metadata:
-  version: "0.4.3"
+  version: "0.4.4"
 description: >-
   Audits a Rust Cargo workspace by actually running the real toolchain (fmt,
   clippy, test, llvm-cov, cargo-deny, cargo-geiger, machete, semver-checks,
