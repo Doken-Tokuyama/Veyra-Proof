@@ -63,8 +63,9 @@ TESTS = "tests"
 PLATFORMS = "platforms"
 WHEEL = "wheel"
 EVIDENCE = "evidence"
+PUBLISHED = "published"
 
-WANTED = (TESTS, PLATFORMS, WHEEL, EVIDENCE)
+WANTED = (TESTS, PLATFORMS, WHEEL, EVIDENCE, PUBLISHED)
 """The steps whose measurements a verification table is built from."""
 
 LEDGER_NAME = "veyra-pre-release.json"
@@ -241,6 +242,37 @@ def verification_rows(
             f"`{_relative(str(evidence.get('evidence', '')), root)}`{tooling} |"
         )
 
+    published = _facts(measured, PUBLISHED)
+    if not published or "published" not in published:
+        # Absent, or a shape this file does not understand. An empty fact is not a
+        # measurement, and a row built from one would claim a comparison nobody made.
+        unmeasured.append(PUBLISHED)
+    elif not published["published"]:
+        rows.append(
+            f"| What `{published.get('index', '')}` serves for "
+            f"`{published.get('version', '')}` | nothing yet — the index has no files "
+            "for this version, so there is no published artifact to compare with the "
+            "one this gate checked; the next run asks again |"
+        )
+    else:
+        parts: list[str] = []
+        for entry in published.get("files", []):
+            note = (
+                f"`{entry.get('filename', '')}` — {entry.get('identical_members', 0)} of "
+                f"{entry.get('members', 0)} members identical"
+            )
+            if entry.get("archive_identical"):
+                note += ", byte for byte"
+            if entry.get("yanked"):
+                note += ", **yanked**"
+            parts.append(note)
+        rows.append(
+            f"| What `{published.get('index', '')}` serves for "
+            f"`{published.get('version', '')}` | "
+            + "; ".join(parts)
+            + " — the payload the index serves is the payload this gate checked |"
+        )
+
     tests = _facts(measured, TESTS)
     if tests is None:
         unmeasured.append(TESTS)
@@ -317,9 +349,12 @@ def render(
         f"{command}\n"
         "```\n\n"
         f"The gate refuses the tag when the suite fails on any platform this project "
-        f"claims, when the wheel does not report the version it was built as, or when the "
-        f"audit's evidence disagrees with its verdict. Git has no pre-tag hook: a plain "
-        f"`git tag` bypasses all of it.\n"
+        f"claims, when the wheel does not report the version it was built as, when the "
+        f"audit's evidence disagrees with its verdict, or when the index serves a payload "
+        f"other than the one it checked. It does *not* refuse when the index has nothing "
+        f"for this version yet, which is the normal answer at tag time: publishing happens "
+        f"afterwards, and this row is filled in by the next run, after the release is up. "
+        f"Git has no pre-tag hook: a plain `git tag` bypasses all of it.\n"
     )
     return "".join(out)
 

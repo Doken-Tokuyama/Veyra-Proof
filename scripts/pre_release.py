@@ -9,13 +9,17 @@ and refuses the release when one fails.
 The steps are the suite, that same suite on the other platforms via the CI run for
 this commit, the skill fan-out, a build validated by `twine check`, that same wheel
 installed into a throwaway virtual environment where it has to report the version it
-was built as, and a real audit whose evidence has to match its verdict. Two of those
-exist because of releases that went out wrong: 0.4.1 shipped a wheel whose
-`__version__` still said `0.3.0` while the distribution said 0.4.1, so every manifest
-that wheel wrote signed the evidence with the wrong version; and 0.4.3 was tagged and
-published here, after which CI came back red on both Windows jobs, which is how the
-fix had to become 0.4.4. The local machine cannot see the second one at all — it runs
-one platform — so the gate asks the platform that failed instead of assuming.
+was built as, a real audit whose evidence has to match its verdict, and the question
+no local step can answer: what the *index* serves for this version, compared with the
+artifact this gate checked. Three of those exist because of releases that went out
+wrong: 0.4.1 shipped a wheel whose `__version__` still said `0.3.0` while the
+distribution said 0.4.1, so every manifest that wheel wrote signed the evidence with
+the wrong version; 0.4.3 was tagged and published here, after which CI came back red
+on both Windows jobs, which is how the fix had to become 0.4.4; and 0.5.0 shipped with
+the index comparison made by hand, once, in a terminal, because nothing in the gate
+had ever opened the file a user actually installs. The local machine cannot see the
+first of those at all — it runs one platform — and it cannot see the last one either,
+unless it asks.
 
 ``--tag NAME`` performs the tag itself, after the gate passes, so the refusal is
 mechanical rather than a promise. The tag is annotated — ``NAME — TITLE`` with
@@ -39,7 +43,10 @@ reports what was already verified on that exact tree as ``PASS (resumed)`` and g
 straight on to the tag. A tag this gate created on an earlier attempt is recognised
 as its own and resumed rather than refused. Any change to the tree invalidates every
 record, and a failure is never recorded at all, so resuming can only ever skip a
-success — never inherit one.
+success — never inherit one. Two steps opt out of resuming, because their answer is not
+a property of the tree: the notes are re-derived every run (they are a file somebody can
+delete), and the index is re-asked every run (it changes while the tree does not, which
+is how the release notes can state what the index serves on a run that made no change).
 
 What this gate does not do, stated plainly because the README promises nothing it
 cannot keep: git has no pre-tag hook. Anyone can run ``git tag`` directly and
@@ -297,7 +304,7 @@ def reports_dir(root: Path) -> Path:
 
 
 def default_steps(root: Path, title: str = "") -> list[Step]:
-    """The seven steps of the release checklist, in the order they are run.
+    """The eight steps of the release checklist, in the order they are run.
 
     ``title`` is the release headline the notes carry. It is a parameter rather than a
     closure over argv so that a caller who only wants the shape of the checklist (the
@@ -378,6 +385,27 @@ def default_steps(root: Path, title: str = "") -> list[Step]:
                 ],
             ),
             report=reports / "evidence.json",
+        ),
+        Step(
+            "published",
+            "what the index serves for this version, against the artifact this gate checked",
+            (
+                lambda: [
+                    sys.executable,
+                    str(scripts / "check_published.py"),
+                    "--root",
+                    str(root),
+                    "--report",
+                    str(reports / "published.json"),
+                ],
+            ),
+            report=reports / "published.json",
+            # Never resumed, because the answer moves without the tree moving: this step
+            # records "not published yet" on the run that cuts the tag — publishing comes
+            # after — and a later run on the same tree is exactly the run where there is
+            # something to compare. Inheriting the earlier answer would keep the release
+            # notes saying nothing was published about a version that is.
+            resumable=False,
         ),
         Step(
             "notes",

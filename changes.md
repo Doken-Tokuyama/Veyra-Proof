@@ -1,3 +1,32 @@
+## Unreleased
+
+- **The release gate asks the index what it serves, and compares it with the artifact it
+  checked.** Every other step looks at this checkout, and nobody installs this checkout:
+  `publish.yml` builds its own sdist and wheel from the tagged commit and uploads *those*,
+  so what a user installs is a second build that no step had ever opened. 0.5.0 shipped
+  with that comparison made by hand, once, in a terminal — the wheel in `dist/` against the
+  wheel PyPI served, member by member — and had it come out differently, or had nobody
+  thought to look, the checklist would have said PASS about a file nobody installs. The new
+  `published` step (`scripts/check_published.py`) asks the index for the version being
+  released and compares the two artifacts **member by member**: the set of member names and
+  the sha256 of each member's content. That is what the claim has to be, because a wheel
+  and an sdist are not byte-reproducible by default — a zip stores each member's timestamp,
+  gzip one of its own — so two builds of one commit give different bytes and identical
+  payloads, and byte-identity is reported only when it actually holds. It passes when the
+  index has *nothing* for this version, which is the normal answer at tag time since
+  publishing comes after the gate, and it records `published: false` so the notes say
+  "nothing yet" instead of carrying a row that reads like a verification; it fails when a
+  payload differs, when the index serves a file this checkout cannot show, or when the
+  index's own digest does not describe the bytes it served; and it exits 2 when the index
+  cannot be asked at all, which refuses the tag, because an unverifiable release is left
+  unproven rather than assumed green. It is the second step that is **never resumed** — the
+  notes are the first — because its answer moves while the tree does not: the run that cuts
+  the tag records "not published yet", and the run that can fill the row in is a later one
+  on an unchanged tree. Run against the real index for 0.5.0, it reports `44 of 44` wheel
+  members and `104 of 104` sdist members identical with the archive bytes different, which
+  is exactly what two builds of one commit produce — and the release-notes row now carries
+  those counts, so the claim is in the release rather than in a terminal transcript.
+
 ## What changed in v0.5.0
 
 - **The release notes are generated, so no number in a release is typed by hand.** 0.4.4's own notes

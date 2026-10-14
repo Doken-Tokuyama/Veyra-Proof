@@ -782,7 +782,7 @@ def test_without_tag_nothing_is_tagged(gate, released, capsys) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_checklist_is_the_documented_seven(gate) -> None:
+def test_the_checklist_is_the_documented_eight(gate) -> None:
     assert [step.name for step in gate.default_steps(REPO_ROOT)] == [
         "tests",
         "platforms",
@@ -790,6 +790,7 @@ def test_the_checklist_is_the_documented_seven(gate) -> None:
         "build",
         "wheel",
         "evidence",
+        "published",
         "notes",
     ]
 
@@ -825,7 +826,7 @@ def test_the_steps_that_report_a_measurement_are_the_ones_that_can(gate) -> None
         if step.report is not None
     }
 
-    assert set(reporting) == {"tests", "platforms", "wheel", "evidence"}, reporting
+    assert set(reporting) == {"tests", "platforms", "wheel", "evidence", "published"}, reporting
     assert reporting["tests"] == "tests.xml", "pytest's counts come from its JUnit XML"
 
 
@@ -964,6 +965,80 @@ def test_the_wheel_step_checks_the_artefact_that_was_just_built(gate) -> None:
     assert "check_wheel_version.py" in commands
     assert f"--root {REPO_ROOT}" in commands, (
         "the step must check the checkout it was pointed at, not the one it lives in"
+    )
+
+
+def test_the_index_is_asked_after_the_audit_and_before_the_notes(gate) -> None:
+    """It compares what was built, and the notes carry its measurement."""
+    names = [step.name for step in gate.default_steps(REPO_ROOT)]
+    published = next(
+        step for step in gate.default_steps(REPO_ROOT) if step.name == "published"
+    )
+    commands = " ".join(" ".join(build_argv()) for build_argv in published.commands)
+
+    assert names.index("wheel") < names.index("published") < names.index("notes"), names
+    assert "check_published.py" in commands
+    assert f"--root {REPO_ROOT}" in commands, (
+        "the step must compare the checkout it was pointed at, not the one it lives in"
+    )
+    assert published.report.name == "published.json", "its measurement is read by the notes"
+
+
+def test_the_index_step_is_never_resumed(gate) -> None:
+    """Its answer changes while the tree does not, which is the whole point.
+
+    The run that cuts the tag records "nothing published yet" — publishing comes after —
+    and the run where there is something to compare is a later one on an identical tree.
+    A resumed answer would keep the release notes saying nothing was published about a
+    version that is.
+    """
+    published = next(
+        step for step in gate.default_steps(REPO_ROOT) if step.name == "published"
+    )
+
+    assert published.resumable is False
+
+
+def test_a_step_that_asks_the_world_again_replaces_what_it_measured(
+    gate, released, tmp_path
+) -> None:
+    """Driven, not just declared: a second run has to record the new answer.
+
+    Same shape as the real step — non-resumable, and it states its facts in a report —
+    with an answer that flips between runs, because that is what the index does.
+    """
+    report = tmp_path / "published.json"
+    answer = tmp_path / "answer.txt"
+    answer.write_text("absent", encoding="utf-8")
+    body = (
+        "import json, pathlib; "
+        f"value = pathlib.Path(r'{answer}').read_text(); "
+        f"pathlib.Path(r'{report}').write_text(json.dumps({{'tool': 'x', 'ok': True, "
+        "'facts': {'published': value == 'present'}}))"
+    )
+
+    def asking(gate_module):
+        return gate_module.Step(
+            "published",
+            "why",
+            (lambda: [sys.executable, "-c", body],),
+            report=report,
+            resumable=False,
+        )
+
+    steps = _build(gate, _passing("tests"), asking)
+
+    assert _run(gate, released, steps) == 0
+    ledger = json.loads(gate.default_state(released).read_text(encoding="utf-8"))
+    assert ledger["measured"]["published"]["facts"] == {"published": False}
+
+
+    answer.write_text("present", encoding="utf-8")
+    assert _run(gate, released, steps) == 0
+    ledger = json.loads(gate.default_state(released).read_text(encoding="utf-8"))
+
+    assert ledger["measured"]["published"]["facts"] == {"published": True}, (
+        "the second run inherited the first run's answer"
     )
 
 

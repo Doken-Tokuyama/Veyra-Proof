@@ -140,6 +140,37 @@ def _full_facts(**overrides) -> dict:
             "tools_ok": ["clippy", "cargo-test"],
             "tools_not_ok": {"semver-checks": "SKIPPED"},
         },
+        "published": {
+            "version": "0.4.9",
+            "index": "https://pypi.org",
+            "published": True,
+            "reason": "the index serves this version",
+            "files_compared": 2,
+            "files": [
+                {
+                    "filename": "veyra_proof-0.4.9-py3-none-any.whl",
+                    "kind": "wheel",
+                    "members": 44,
+                    "identical_members": 44,
+                    "differing_members": [],
+                    "archive_identical": False,
+                    "missing_local": False,
+                    "unreadable": None,
+                    "yanked": False,
+                },
+                {
+                    "filename": "veyra_proof-0.4.9.tar.gz",
+                    "kind": "sdist",
+                    "members": 104,
+                    "identical_members": 104,
+                    "differing_members": [],
+                    "archive_identical": True,
+                    "missing_local": False,
+                    "unreadable": None,
+                    "yanked": False,
+                },
+            ],
+        },
     }
     facts.update(overrides)
     return facts
@@ -163,6 +194,11 @@ class TestTheNumbersComeFromTheRecord:
         assert "20260101T000000Z" in body
         # The row names the command that ran, not the directory it wrote to.
         assert "`veyra audit fixtures/demo_crate` (`--profile quick`)" in body
+        # The index row carries the comparison itself, not a promise that one happened.
+        assert "`veyra_proof-0.4.9-py3-none-any.whl` — 44 of 44 members identical" in body
+        assert "`veyra_proof-0.4.9.tar.gz` — 104 of 104 members identical" in body
+        assert "the payload the index serves is the payload this gate checked" in body
+        assert "byte for byte" in body, "and only where the archives really do match"
         assert "(veyra 0.4.9)" in body, "the auditor version that produced the evidence"
         assert "`veyra audit fixtures/demo_crate/.veyra/evidence" not in body
         assert path == root / ".freebuff" / "release-notes-v0.4.9.md"
@@ -258,6 +294,64 @@ class TestTheNumbersComeFromTheRecord:
         assert "Every number below" not in header
         assert "verification table is read out of that record" in header
         assert "no row" in body.split("## Verification", 1)[1]
+
+    def test_an_unpublished_version_is_not_described_as_verified(
+        self, notes, gate, tmp_path
+    ) -> None:
+        """The usual answer at tag time: publishing comes after the gate.
+
+        It has to read as a gap, not as a pass: a row saying the payloads are identical
+        about a comparison that never happened is exactly the defect this file exists to
+        refuse, one branch along.
+        """
+        root = _tree(tmp_path)
+        facts = _full_facts()
+        facts["published"] = {
+            "version": "0.4.9",
+            "index": "https://pypi.org",
+            "published": False,
+            "reason": "the index has no files for this version yet",
+            "files": [],
+            "files_compared": 0,
+        }
+        _write(root, _record(gate, root, **facts))
+
+        code, body, _ = notes.generate(root, "t")
+
+        assert code == 0
+        row = next(
+            line for line in body.splitlines() if line.startswith("| What `https://pypi.org`")
+        )
+        assert "nothing yet" in row
+        assert "identical" not in row, "a row reading 'identical' about nothing is a lie"
+        assert "## Not measured" not in body, (
+            "the step ran and answered; it is not a missing measurement"
+        )
+
+    def test_a_published_fact_with_no_answer_is_named_not_guessed(
+        self, notes, gate, tmp_path
+    ) -> None:
+        """An empty fact is not a measurement, whatever key it is filed under."""
+        root = _tree(tmp_path)
+        facts = _full_facts()
+        facts["published"] = {}
+        _write(root, _record(gate, root, **facts))
+
+        _, body, _ = notes.generate(root, "t")
+
+        assert "## Not measured" in body
+        assert "- `published`" in body
+
+    def test_the_reproduce_note_names_the_index_refusal(self, notes, gate, tmp_path) -> None:
+        """A reader has to know the index can refuse the tag, and when it does not."""
+        root = _tree(tmp_path)
+        _write(root, _record(gate, root, **_full_facts()))
+
+        _, body, _ = notes.generate(root, "t")
+
+        tail = body.split("## How to reproduce", 1)[1]
+        assert "the index serves a payload other than the one it checked" in tail
+        assert "does *not* refuse when the index has nothing" in tail
 
     def test_a_measurement_that_is_absent_is_named_not_guessed(self, notes, gate, tmp_path):
         """No row, and no plausible number in its place."""
