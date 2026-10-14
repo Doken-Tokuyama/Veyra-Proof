@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -267,17 +268,60 @@ def tag_message(name: str, title: str | None) -> str:
     return f"{name} — {title}" if title else name
 
 
-def create_tag(root: Path, name: str, title: str | None = None) -> int:
-    message = tag_message(name, title)
+def stored_subject(root: Path, name: str) -> str:
+    """The annotation git actually stored, decoded the way git encodes it."""
     completed = subprocess.run(
-        ["git", "tag", "-a", name, "-m", message],
+        ["git", "for-each-ref", f"refs/tags/{name}", "--format=%(subject)"],
         cwd=root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
+    return completed.stdout.strip()
+
+
+def create_tag(root: Path, name: str, title: str | None = None) -> int:
+    """Create the annotated tag, and prove git stored the message that was asked for.
+
+    The message is handed over in a UTF-8 file rather than argv. On Windows a
+    command-line message is re-encoded through the console codepage, so the em dash
+    in `vX.Y.Z — headline` comes back as something else; a file of bytes does not
+    make that trip. The stored subject is then compared with what was requested,
+    because a tag whose name cannot be reproduced is worse than no tag: it is the
+    one string GitHub shows on the release page.
+    """
+    message = tag_message(name, title)
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", suffix=".tag-message", delete=False
+    ) as handle:
+        handle.write(message + "\n")
+        message_path = Path(handle.name)
+    try:
+        completed = subprocess.run(
+            ["git", "tag", "-a", name, "-F", str(message_path)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    finally:
+        message_path.unlink(missing_ok=True)
+
     if completed.returncode != 0:
         print(f"  could not create {name}: {completed.stderr.strip()}")
         return 1
+
+    stored = stored_subject(root, name)
+    if stored != message:
+        # Nothing is pushed yet, so removing a tag this call created is the honest
+        # end state: better than leaving an annotation nobody asked for, and better
+        # than exiting 0 over it.
+        subprocess.run(["git", "tag", "-d", name], cwd=root, capture_output=True)
+        print(f"  git stored a different annotation for {name}, so the tag was removed")
+        print(f"    asked for: {message!r}")
+        print(f"    stored:    {stored!r}")
+        return 1
+
     print(f"  tagged {name} — {title}" if title else f"  tagged {name}")
     return 0
 

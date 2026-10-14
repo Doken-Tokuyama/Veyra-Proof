@@ -41,21 +41,28 @@ def combined():
 
 
 def _seed_repo(root: Path) -> Path:
-    """A temp checkout holding a canonical skill of its own."""
+    """A temp checkout holding a canonical skill of its own.
+
+    Written and read as bytes on purpose. `write_text` translates `\n` to
+    `os.linesep`, so on Windows this fixture produced a CRLF canonical file while
+    the store built from it held LF — and the account check, which reads the
+    canonical file as bytes, then reported a difference the fixture had invented.
+    The fixture has to model the committed file, not the platform's newline.
+    """
     directory = root / CANONICAL_REL
     directory.mkdir(parents=True)
-    (directory / "SKILL.md").write_text(
-        '---\nname: veyra-proof\nmetadata:\n  version: "0.4.2"\n---\n# Skill\n',
-        encoding="utf-8",
+    (directory / "SKILL.md").write_bytes(
+        b'---\nname: veyra-proof\nmetadata:\n  version: "0.4.2"\n---\n# Skill\n'
     )
-    (directory / "reference.md").write_text("# Reference\n", encoding="utf-8")
+    (directory / "reference.md").write_bytes(b"# Reference\n")
     return directory
 
 
 def _canonical(root: Path) -> dict[str, str]:
+    """The fixture's canonical skill as text, read without newline translation."""
     directory = root / CANONICAL_REL
     return {
-        path.name: path.read_text(encoding="utf-8")
+        path.name: path.read_bytes().decode("utf-8")
         for path in sorted(directory.iterdir())
         if path.is_file()
     }

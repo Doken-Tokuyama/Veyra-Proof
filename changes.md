@@ -17,12 +17,22 @@ the exit codes and the report schema are untouched.
   same on every platform and matches `SKILL-COPIES.md` instead of printing
   `~\.config\freebuff-desktop\…` on Windows. The test that keeps the report and the guide
   in agreement compares `as_posix()`, which is what a reader actually sees.
-- **A store fixture built a CRLF store on Windows.** `tests/test_check_skills.py` wrote the
-  projection with `write_text`, which translates `\n` to `os.linesep`, so the store no
-  longer matched the canonical file byte for byte and the checker — correctly, per its
-  "byte for byte" contract — reported `DIFFERS`. The fixture writes bytes now. Verified by
-  reproducing both forms against the real checker: LF reads `current`, CRLF reads
-  `differs, 38 B vs 34 B`.
+- **Both sides of that fixture are now byte-exact.** `tests/test_check_skills.py` wrote
+the canonical skill *and* the store projection with `write_text`, which translates `\n` to
+`os.linesep`: on Windows the fixture built a CRLF canonical file and a store to match, and
+the account check — which reads the canonical file as bytes — compared LF text against CRLF
+bytes and reported a difference the fixture had invented. Both are written and read as
+bytes now. Verified by reproducing both forms against the real checker: LF reads `current`,
+CRLF reads `differs, 38 B vs 34 B`.
+- **The tag message is handed to git in a UTF-8 file, and the annotation is verified.**
+On Windows a command-line message is re-encoded through the console codepage, so the em dash
+in `vX.Y.Z — headline` came back as something else — the tag's subject is the string GitHub
+shows as the release name, so a mangled one is a defect, not a cosmetic loss. `create_tag`
+now writes the message to a file and passes `-F`, then compares `%(subject)` with what was
+asked for; if git stored a different annotation it removes the tag it just created and exits
+1, since nothing has been pushed yet. `tests/test_pre_release.py` covers that path with a
+title git cleans up (`a headline   `), and reads git's output as UTF-8 rather than the
+locale encoding.
 
 ## What changed in v0.4.3
 

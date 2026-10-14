@@ -100,11 +100,18 @@ def _tag_object(root: Path, name: str) -> str:
 
 
 def _tag_subject(root: Path, name: str) -> str:
+    """Decoded as UTF-8, which is how git stores and prints an annotation.
+
+    Without `encoding=`, subprocess decodes git's output with the locale encoding —
+    cp1252 on Windows — so the em dash in `vX.Y.Z — headline` would come back as
+    mojibake and the comparison would fail over the test's decoder, not the code's.
+    """
     return subprocess.run(
         ["git", "for-each-ref", f"refs/tags/{name}", "--format=%(subject)"],
         cwd=root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
 
 
@@ -404,6 +411,26 @@ def test_a_tag_without_a_title_is_annotated_all_the_same(gate, released) -> None
     assert code == 0
     assert _tag_object(released, "v0.4.2") == "tag"
     assert _tag_subject(released, "v0.4.2") == "v0.4.2"
+
+
+@needs_git
+def test_a_tag_whose_annotation_git_rewrites_is_removed(gate, released, capsys) -> None:
+    """The annotation is the release name GitHub shows, so a mangled one is a defect.
+
+    Git cleans up a message it is given (trailing whitespace here), which is the
+    mechanism by which an em dash is lost on Windows. The gate compares what it
+    asked for with what was stored and removes the tag it just created rather than
+    exiting 0 over an annotation nobody asked for. Nothing has been pushed yet.
+    """
+    code = gate.main(
+        ["--root", str(released), "--tag", "v0.4.2", "--title", "a headline   "],
+        steps=_build(gate, _passing("tests")),
+    )
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "stored a different annotation" in out
+    assert _tags(released) == "", "the tag it could not annotate had to go"
 
 
 @needs_git
