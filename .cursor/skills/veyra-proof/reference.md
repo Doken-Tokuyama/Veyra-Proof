@@ -21,6 +21,35 @@ Quote it when someone asks why an audit took minutes — on a real crate the cos
 usually its own test suite. Veyra neither caches builds across runs nor skips checks
 to go faster.
 
+## Result status vocabulary
+
+Every tool lands in exactly one status, and a status is a claim about what was observed —
+never an aspiration. The full set is `ResultStatus` in `models.py`.
+
+| Status | Means |
+|--------|-------|
+| `OK` | the command ran and met its criterion |
+| `FINDINGS` | the command ran and produced findings |
+| `ERROR` | the tool failed to execute (compile error, crash) |
+| `SKIPPED` | not attempted, with the reason stated |
+| `INCONCLUSIVE` | started but did not complete (timeout, stale lockfile, nightly-only) |
+
+`MISSING` is a *detection* status: the tool or a prerequisite is not installed. A tool that
+did not run is `MISSING` or `SKIPPED`, never `OK`. The overall decision is `ACCEPTED`,
+`REJECTED`, or `INCONCLUSIVE`. A blocked, missing, or skipped check is never a green
+checkmark.
+
+## Coverage honesty
+
+Do not claim more coverage than a command provided:
+
+- `cargo check` does **not** run code generation, so some diagnostics only surface in
+  `cargo build` / `cargo test`. Never call a workspace verified from `cargo check` alone.
+- A workspace's default member selection can be narrower than the whole workspace; an
+  all-member audit selects `--workspace` explicitly.
+- `cargo test --no-fail-fast` reports every test executable even when one fails; without it
+  the first failure can hide the rest.
+
 ## Verdicts that are not passes
 
 | Situation | Verdict |

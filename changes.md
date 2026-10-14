@@ -1,3 +1,36 @@
+## What changed in v0.4.0
+
+A skill-document and release-metadata release. The `veyra` CLI, exit codes, and
+`report.json`/`report.md` schema are unchanged from 0.3.0; what improved is the agent skill
+that drives the tool and the declared version. Validated by the test suite (skill-document
+guards and the byte-identical fan-out), not by new tool runs.
+
+### Skill improvements
+
+- **Result status vocabulary documented** (`reference.md`, fanned out to `Veyra/skills/`):
+  the exact `ResultStatus` set — `OK`, `FINDINGS`, `ERROR`, `SKIPPED`, `INCONCLUSIVE` — with
+  strict meanings, `MISSING` as the detection status for an absent tool, and the `ACCEPTED` /
+  `REJECTED` / `INCONCLUSIVE` decision. A status is a claim about what was observed; `OK` is
+  never assigned to a tool that did not run.
+- **Coverage honesty documented** (`reference.md`): `cargo check` omits code generation, a
+  workspace's default member selection can be narrower than `--workspace`, and
+  `cargo test --no-fail-fast` is needed to gather every test executable — do not claim more
+  coverage than a command provided.
+- **Frontmatter** (`SKILL.md`): added `license: MIT` and `metadata.version: 0.4.0`, the
+  portable version location for the open `SKILL.md` standard. The frozen `HARD_RULES` block
+  is unchanged.
+
+`SKILL.md` stays within its 1,600-token budget, so the new detail lives in `reference.md`
+(loaded on demand) rather than the always-loaded body.
+
+### Migration
+
+None required. Commands, exit codes, the report schema, and `veyra.toml` are identical to
+0.3.0. The visible changes are the skill document and the declared version. `Veyra/skills/`
+stays byte-identical to `.cursor/skills/`, enforced by `tests/test_skill_document.py`.
+
+---
+
 ## What changed in v0.3.0
 
 
