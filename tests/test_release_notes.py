@@ -56,13 +56,29 @@ BULLET = (
 )
 
 
-def _record(gate, root: Path, *, version: str = "0.4.9", **facts) -> dict:
-    """A gate record for this tree, with whatever facts a test wants it to carry."""
+def _record(gate, root: Path, *, version: str = "0.4.9", state="recorded", **facts) -> dict:
+    """A gate record for this tree, with whatever facts a test wants it to carry.
+
+    `state` is the release-state rows the gate records — the footer's own rows.
+    The default is the gate's real renderers over these same facts, so a record
+    cannot contradict itself the way a hand-typed pair of rows could. Pass
+    `state=None` for a record from a run that never asked.
+    """
+    if state == "recorded":
+        state = {
+            "release": gate.release_state_body(
+                ("absent", ""),
+                f"v{version}",
+                f"v{version} — a headline",
+                f".freebuff/release-notes-v{version}.md",
+            ),
+            "pypi": gate.pypi_state_body(facts.get("published")),
+        }
     measured = {
         name: {"at": "2026-10-14T00:00:00+00:00", "duration_s": 1.0, "facts": value}
         for name, value in facts.items()
     }
-    return {
+    record = {
         "version": version,
         "head": "a" * 40,
         "fingerprint": gate.tree_fingerprint(root),
@@ -70,6 +86,9 @@ def _record(gate, root: Path, *, version: str = "0.4.9", **facts) -> dict:
         "steps": {name: "2026-10-14T00:00:00+00:00" for name in measured},
         "measured": measured,
     }
+    if state is not None:
+        record["state"] = state
+    return record
 
 
 def _tree(tmp_path: Path, version: str = "0.4.9") -> Path:
@@ -203,6 +222,31 @@ class TestTheNumbersComeFromTheRecord:
         assert "`veyra audit fixtures/demo_crate/.veyra/evidence" not in body
         assert path == root / ".freebuff" / "release-notes-v0.4.9.md"
         assert path.is_file(), "the default path is the one the gate hands to `gh`"
+
+    def test_the_index_row_names_the_commit_the_world_installs(
+        self, notes, gate, tmp_path
+    ):
+        """Provenance is stated when the step measured it — in the form the record holds.
+
+        The short commit id is a recorded fact, not a truncation made here: a number the
+        record does not hold is exactly what `no_digit_in_the_verification_table…`
+        refuses, and a sha cut in the generator would be one.
+        """
+        root = _tree(tmp_path)
+        facts = _full_facts()
+        facts["published"] = {
+            **facts["published"],
+            "released_commit": "a29c70f1234567890abcdef1234567890abcdef12",
+            "released_commit_short": "a29c70f12345",
+            "released_from": "the tag v0.4.9",
+        }
+        _write(root, _record(gate, root, **facts))
+
+        code, body, _ = notes.generate(root, "a headline")
+
+        assert code == 0
+        assert "built from `a29c70f12345` (the tag v0.4.9)" in body
+        assert "the payload the index serves is the payload this gate checked" in body
 
     def test_two_records_produce_two_different_reports(self, notes, gate, tmp_path):
         """The strongest form of the claim: change the measurement, the note changes.
@@ -375,13 +419,88 @@ class TestTheNumbersComeFromTheRecord:
 
     def test_with_nothing_measured_it_says_so(self, notes, gate, tmp_path):
         root = _tree(tmp_path)
-        _write(root, _record(gate, root))
+        _write(root, _record(gate, root, state=None))
 
         code, body, _ = notes.generate(root, "t")
 
         assert code == 0
         assert "Nothing was measured for this tree." in body
         assert all(f"- `{name}`" in body for name in notes.WANTED)
+
+
+class TestTheStateRowsAreTheFootersRows:
+    """The footer's `release` and `pypi` rows, recorded and shown verbatim.
+
+    The gate records what its footer prints and this generator shows those exact
+    strings. Two renderings of one claim could describe the release two different
+    ways — the footer saying "no release yet" beside notes saying something else —
+    and that is what recording the rows exists to make impossible.
+    """
+
+    def test_the_recorded_rows_are_shown_verbatim(self, notes, gate, tmp_path):
+        root = _tree(tmp_path)
+        record = _record(gate, root, **_full_facts())
+        _write(root, record)
+
+        code, body, _ = notes.generate(root, "t")
+        section = body.split("## Verification", 1)[1].split("\n## ", 1)[0]
+
+        assert code == 0
+        for label in notes.STATE_ROWS:
+            assert f"| `{label}` | " in section
+            for line in record["state"][label]:
+                assert line in section, f"the table reworded a recorded row: {line}"
+
+    def test_the_table_row_is_the_recorded_lines_joined_and_nothing_else(
+        self, notes, gate, tmp_path
+    ):
+        """The generator adds a label and a `<br>` — and no words of its own."""
+        root = _tree(tmp_path)
+        record = _record(gate, root, **_full_facts())
+        _write(root, record)
+
+        _, body, _ = notes.generate(root, "t")
+
+        for label in notes.STATE_ROWS:
+            expected = f"| `{label}` | " + "<br>".join(record["state"][label]) + " |"
+            assert expected in body
+
+    def test_two_state_answers_produce_two_different_tables(self, notes, gate, tmp_path):
+        """The strongest form: change the answer, the table changes with it."""
+        root = _tree(tmp_path)
+        record = _record(gate, root, **_full_facts())
+        _write(root, record)
+        _, first, _ = notes.generate(root, "t")
+
+        record["state"] = {
+            "release": [
+                f"the release already exists on GitHub — gh release view v0.4.9 found it"
+            ],
+            "pypi": record["state"]["pypi"],
+        }
+        _write(root, record)
+        _, second, _ = notes.generate(root, "t")
+
+        assert "no release for this tag on GitHub yet" in first
+        assert "already exists on GitHub" not in first
+        assert "already exists on GitHub" in second
+        assert "no release for this tag on GitHub yet" not in second
+
+    def test_state_rows_the_gate_never_recorded_are_named_not_guessed(
+        self, notes, gate, tmp_path
+    ):
+        """A record from a run that never asked has no row — and names the gap."""
+        root = _tree(tmp_path)
+        _write(root, _record(gate, root, state=None, **_full_facts()))
+
+        code, body, _ = notes.generate(root, "t")
+
+        assert code == 0
+        assert "## Not measured" in body
+        assert "- `release`" in body
+        assert "- `pypi`" in body
+        assert "no release for this tag" not in body
+        assert "gh release create" not in body
 
 
 class TestItRefusesInsteadOfDrafting:

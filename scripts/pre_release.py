@@ -615,6 +615,58 @@ def tag_state_block(root: Path, name: str, message: str) -> str | None:
     return None
 
 
+def origin_tag_conflict(
+    held: str, commit_remote: str, local: str, commit_local: str, name: str
+) -> str | None:
+    """Why origin's tag contradicts the one this gate would create, or None.
+
+    Pure: the two objects and the commits they point at, as ``git ls-remote`` and
+    ``git rev-parse`` report them. ``held`` empty means origin holds nothing under
+    the name; ``local`` empty means the tag is about to be created, which can never
+    be the object origin already holds — a fresh annotation is a fresh sha either
+    way. The same object is not a conflict: that is the interrupted run resuming.
+    """
+    if not held or (local and held == local):
+        return None
+    same = (
+        "the same commit, a different annotation"
+        if commit_remote == commit_local
+        else "a different commit"
+    )
+    mine = (
+        f"this one is {local[:12]}"
+        if local
+        else f"this one would be a new tag of {(commit_local or 'HEAD')[:12]}"
+    )
+    return (
+        f"origin already holds a different {name} ({held[:12]}, {mine}): {same}. "
+        "git push would refuse the name, so the tag is not being created — delete "
+        "the remote tag, or cut the release under another version"
+    )
+
+
+def origin_tag_block(root: Path, name: str) -> str | None:
+    """Origin's verdict on the tag this gate is about to create, asked not remembered.
+
+    The gap this closes: the release state *named* a tag origin already held
+    something else under — after the gate had cut a tag ``git push`` would refuse.
+    Asked with ``git ls-remote``, the same transport a push uses. An origin that
+    cannot be asked refuses nothing: the tag is local and verifiable, and the
+    release state reports the question as unproven instead.
+    """
+    remote, why = ask_origin(root, name)
+    if why:
+        return None
+    held = remote.get(f"refs/tags/{name}", "")
+    local = _git(root, "rev-parse", f"refs/tags/{name}")
+    commit_local = _git(
+        root, "rev-parse", f"refs/tags/{name}^{{commit}}" if local else "HEAD"
+    )
+    return origin_tag_conflict(
+        held, remote.get(f"refs/tags/{name}^{{}}", "") or held, local, commit_local, name
+    )
+
+
 def tag_refusal(root: Path, name: str, skipped: list[str], message: str) -> str | None:
     """Why the tag must not be created, or None when it may be."""
     if skipped:
@@ -628,16 +680,248 @@ def tag_refusal(root: Path, name: str, skipped: list[str], message: str) -> str 
     conflict = tag_state_block(root, name, message)
     if conflict:
         return conflict
-    return skill_release_block(root)
+    blocked = skill_release_block(root)
+    if blocked:
+        return blocked
+    if not tag_exists(root, name):
+        # Only a tag being created can end up one `git push` refuses: a tag this
+        # gate recognises is a resumed step, and a divergent object under an
+        # already-existing name is the footer's `push` row to name. Cutting a new
+        # tag under a name origin already holds something else under is the gap.
+        return origin_tag_block(root, name)
+    return None
 
 
-def report_release_state(root: Path, name: str, message: str) -> None:
-    """What is left to do, from local state only, and what this gate will not do.
+def ask_origin(root: Path, name: str) -> tuple[dict[str, str], str]:
+    """What origin holds right now for ``main`` and ``name`` — asked, not remembered.
+
+    ``origin/main`` and ``refs/tags/`` in this clone record the last fetch, and a
+    claim about what has been *pushed* cannot be built from that memory: an unpushed
+    tag fetched nowhere looks exactly like one that went up hours ago.
+    ``git ls-remote`` is the same transport a push uses, so what it prints is what
+    the remote holds. On failure it returns the reason instead — no remote, offline,
+    no credentials — because that is a state to report, not one to guess out of.
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "ls-remote",
+                "origin",
+                "refs/heads/main",
+                f"refs/tags/{name}",
+                f"refs/tags/{name}^{{}}",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return {}, "git ls-remote origin timed out"
+    except OSError as error:
+        return {}, f"{error.__class__.__name__}: {error}"
+    if completed.returncode != 0:
+        lines = [line for line in completed.stderr.strip().splitlines() if line.strip()]
+        # The first line names the failure ('origin' does not appear to be a git
+        # repository, unable to access …); the last is git's boilerplate advice.
+        return {}, lines[0] if lines else "git ls-remote origin failed"
+    return origin_refs(completed.stdout), ""
+
+
+def origin_refs(ls_remote_stdout: str) -> dict[str, str]:
+    """``git ls-remote``'s stdout as ref name -> sha; peeled refs keep their ``^{{}}``."""
+    found: dict[str, str] = {}
+    for line in ls_remote_stdout.splitlines():
+        sha, tab, ref = line.partition("\t")
+        if tab:
+            found[ref.strip()] = sha.strip()
+    return found
+
+
+def push_state_lines(
+    remote: dict[str, str],
+    why: str,
+    name: str,
+    local: str,
+    commit_local: str,
+) -> list[str]:
+    """The ``push`` line(s) of the release state, decided from what origin answered.
+
+    ``remote`` and ``why`` are exactly what ``ask_origin`` returned: the refs origin
+    holds right now, or the reason it could not be asked. Nothing else enters the
+    decision — ``local`` and ``commit_local`` are only ever *compared against* what
+    the remote said, never taken as evidence of what the remote has.
+    """
+    if why:
+        return [
+            f"  push      git push origin {name} — whether the tag is already on origin is",
+            "            unproven for the same reason",
+        ]
+    pushed = remote.get(f"refs/tags/{name}")
+    if not pushed:
+        return [f"  push      the tag is not on origin — git push origin {name}"]
+    if pushed == local:
+        return [f"  push      the tag is on origin as {pushed[:12]} — nothing to push"]
+    commit_remote = remote.get(f"refs/tags/{name}^{{}}") or pushed
+    same = (
+        "the same commit, a different annotation"
+        if commit_remote == commit_local
+        else "a different commit"
+    )
+    return [
+        f"  push      origin holds a different {name} ({pushed[:12]}, this one is {local[:12]}):",
+        f"            {same}. git push would refuse the name; resolve it before pushing.",
+    ]
+
+
+def gh_release_presence(returncode: int, stderr: str) -> tuple[str, str]:
+    """What ``gh release view``'s exit and stderr mean: exists, absent, or unproven.
+
+    Only GitHub's own ``not found`` is a definite absence. Every other failure —
+    no gh, no credentials, no network, no remote that points at GitHub — is a
+    question that failed, and a question that failed is not an answer.
+    """
+    if returncode == 0:
+        return "exists", ""
+    lines = [line for line in stderr.strip().splitlines() if line.strip()]
+    reason = lines[0] if lines else "gh release view failed"
+    return ("absent", "") if "not found" in reason.lower() else ("unproven", reason)
+
+
+def ask_github_release(root: Path, name: str) -> tuple[str, str]:
+    """Whether GitHub already has the release for this tag — asked, not remembered.
+
+    Unlike the index, nothing in this checkout records it: no step measures GitHub's
+    releases, so there is no fact to cite and the CLI that would create the release
+    is asked instead.
+    """
+    try:
+        completed = subprocess.run(
+            ["gh", "release", "view", name],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return "unproven", "gh release view timed out"
+    except OSError as error:
+        return "unproven", f"{error.__class__.__name__}: {error}"
+    return gh_release_presence(completed.returncode, completed.stderr)
+
+
+def footer_row(label: str, body: list[str]) -> list[str]:
+    """One row of the release state as the footer prints it: label column, then body.
+
+    The label column is twelve wide, so continuation lines line up under the text
+    rather than under the label. This is the only place that shape is decided — the
+    body is content, and the same body is what the record stores and the notes show.
+    """
+    return [
+        f"  {label if index == 0 else '':<10}{line}" for index, line in enumerate(body)
+    ]
+
+
+def release_state_body(
+    answer: tuple[str, str], name: str, message: str, notes_label: str
+) -> list[str]:
+    """The ``release`` row's content: what GitHub holds, and the command when one is left.
+
+    The command is stated whenever a release may still need creating — GitHub said it
+    has none, or it could not be asked — and withheld when it is already there. A
+    failed question never suppresses what is left to do, and never claims it done.
+
+    The notes file is named by path, always: it is the file the `notes` step writes,
+    a fact about this release rather than about whether some file exists at this
+    instant. Whether it exists *now* is the footer's own warning to give.
+    """
+    state, why = answer
+    if state == "exists":
+        return [f"the release already exists on GitHub — gh release view {name} found it"]
+    command = f'gh release create {name} --title "{message}" --notes-file {notes_label}'
+    if state == "absent":
+        return ["no release for this tag on GitHub yet", command]
+    return [f"whether the release exists is unproven ({why})", command]
+
+
+def release_state_lines(
+    answer: tuple[str, str],
+    name: str,
+    message: str,
+    notes_label: str,
+    notes_present: bool,
+) -> list[str]:
+    """The ``release`` line(s) as the footer prints them.
+
+    The body is the recorded row — same words, no second phrasing — with the label
+    column around it. The one thing not recorded is the warning about a missing notes
+    file: that is the filesystem at this moment, not a fact about the release.
+    """
+    lines = footer_row("release", release_state_body(answer, name, message, notes_label))
+    if not notes_present:
+        lines.append(
+            f"            there is no notes file at {notes_label}; the release body comes from one"
+        )
+    return lines
+
+
+def pypi_state_body(facts: dict | None) -> list[str]:
+    """The ``pypi`` row's content: what the index serves, as the ``published`` step measured it.
+
+    Cited rather than re-asked: this run's checklist has just measured the index (the
+    step never resumes, exactly because the index changes while the tree does not),
+    and a second query beside the recorded fact could contradict it. A run that
+    measured nothing says so — an absent measurement is not an absent release.
+    """
+    if not isinstance(facts, dict) or "published" not in facts:
+        return ["what the index serves is unproven — this run measured nothing about it"]
+    if facts["published"] is None:
+        return [
+            "what the index serves is unproven ("
+            f"{facts.get('error') or 'the index could not be asked'})"
+        ]
+    index = facts.get("index") or "the index"
+    version = facts.get("version") or "this version"
+    if not facts["published"]:
+        return [f"{index} has no files for {version} yet"]
+    names = [
+        str(entry.get("filename"))
+        for entry in facts.get("files", [])
+        if isinstance(entry, dict) and entry.get("filename")
+    ]
+    if not names:
+        return [f"{index} lists {version} with no files at all"]
+    return [f"{index} serves {version}: {', '.join(names)}"]
+
+
+def pypi_state_lines(facts: dict | None) -> list[str]:
+    """The ``pypi`` line as the footer prints it: the recorded body, labeled."""
+    return footer_row("pypi", pypi_state_body(facts))
+
+
+def report_release_state(
+    root: Path,
+    name: str,
+    message: str,
+    measured: dict | None = None,
+    github: tuple[str, str] = ("unproven", "this run never asked GitHub"),
+) -> None:
+    """What is left to do, what the outside world actually holds, and what this gate will not do.
 
     The gate stops at the tag on purpose: publishing the release is what uploads to
     PyPI, and that cannot be undone. What it can do is say which steps remain and
     what the exact commands are, instead of leaving the releaser to remember them
     after a run that died halfway.
+
+    Each row comes from its own source and never from this clone's memory: origin is
+    asked (``git ls-remote``), GitHub was asked once earlier in this run and the
+    answer is *cited* here — the same ask the record carries, so the footer cannot
+    say one thing and the release notes another — and the index is *cited* from the
+    ``published`` step's recorded facts. Wherever a source cannot answer, the row
+    says unproven rather than filling itself in with a guess.
     """
     notes = root / ".freebuff" / f"release-notes-{name}.md"
     try:
@@ -646,27 +930,37 @@ def report_release_state(root: Path, name: str, message: str) -> None:
         notes_label = str(notes)
 
     head = _git(root, "rev-parse", "HEAD")
-    origin = _git(root, "rev-parse", "origin/main")
+    remote, why = ask_origin(root, name)
 
     print()
     print("=== release state")
     print(f"  tag       {message}")
-    if not origin:
-        print("  main      no origin/main in this clone to compare against")
-    elif origin == head:
-        print(f"  main      {head[:12]} is on origin/main")
+    if why:
+        print(f"  origin    cannot ask it ({why})")
+        print(f"  main      whether {head[:12]} is on origin/main is unproven, not assumed")
     else:
-        print(f"  main      {head[:12]} is NOT on origin/main — git push origin main")
-    print(f"  push      git push origin {name}")
-    if notes.is_file():
-        print(f"  release   gh release create {name} --title \"{message}\" --notes-file {notes_label}")
-    else:
-        print(f"  release   gh release create {name} --title \"{message}\" --notes-file <notes-file>")
-        print(f"            there is no notes file at {notes_label}; the release body comes from one")
+        origin_main = remote.get("refs/heads/main")
+        if not origin_main:
+            print("  main      origin has no main branch — git push origin main would create it")
+        elif origin_main == head:
+            print(f"  main      {head[:12]} is on origin/main")
+        else:
+            print(f"  main      {head[:12]} is NOT on origin/main — git push origin main")
+
+    for line in push_state_lines(
+        remote,
+        why,
+        name,
+        _git(root, "rev-parse", f"refs/tags/{name}"),
+        _git(root, "rev-parse", f"refs/tags/{name}^{{commit}}"),
+    ):
+        print(line)
+    for line in release_state_lines(github, name, message, notes_label, notes.is_file()):
+        print(line)
+    for line in pypi_state_lines((measured or {}).get("published")):
+        print(line)
     print("  stops     publishing the release is what triggers publish.yml -> PyPI, and that")
     print("            upload cannot be undone, so this gate ends at the tag.")
-    print("  limit     it reads local refs only, so it cannot tell whether the tag has")
-    print("            already been pushed.")
 
 
 def tag_message(name: str, title: str | None) -> str:
@@ -804,6 +1098,20 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
     ledger = read_ledger(state)
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
+    # The release-state rows are measured in this run and recorded with the rest.
+    # GitHub is asked a single time per run — `gh release view`, because no step
+    # measures GitHub's releases — and the answer is what the record, the release
+    # notes and the footer all report; a second ask beside the recorded one could
+    # contradict it. The ask itself happens just before the record is written,
+    # because the deferred `notes` step reads the record to build its table.
+    release_name = args.tag or (f"v{version}" if version is not None else "")
+    message = tag_message(release_name, args.title) if release_name else ""
+    notes_file = root / ".freebuff" / f"release-notes-{release_name}.md"
+    try:
+        notes_label = notes_file.relative_to(root).as_posix()
+    except ValueError:
+        notes_label = str(notes_file)
+
     def record(results: list[Result]) -> dict:
         """The ledger for these results: what passed, when, and what it measured.
 
@@ -832,6 +1140,21 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
                 }
                 for result in results
                 if result.ok and (result.facts or result.duration_s is not None)
+            },
+            # The footer's `release` and `pypi` rows, as the facts they are: the
+            # outside world's answer to what this release still is and is not.
+            # Unlike the steps these are recorded whatever the verdict — the
+            # question was asked either way — and the release notes show these
+            # exact rows rather than a second phrasing of them.
+            "state": {
+                "release": release_state_body(github, release_name, message, notes_label),
+                "pypi": pypi_state_body(
+                    {
+                        result.step.name: result.facts
+                        for result in results
+                        if result.facts
+                    }.get("published")
+                ),
             },
         }
 
@@ -863,6 +1186,11 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
         else:
             results.append(run_step(step, root))
 
+    github = (
+        ask_github_release(root, release_name)
+        if release_name
+        else ("unproven", "no tag names this release")
+    )
     recorded = True
     if fingerprint and version is not None:
         recorded = write_ledger(state, record(results))
@@ -968,7 +1296,13 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
             code = create_tag(root, args.tag, args.title)
             if code != 0:
                 return code
-        report_release_state(root, args.tag, message)
+        report_release_state(
+            root,
+            args.tag,
+            message,
+            {result.step.name: result.facts for result in results if result.facts},
+            github,
+        )
         return 0
 
     return 0

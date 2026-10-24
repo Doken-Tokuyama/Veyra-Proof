@@ -1,3 +1,81 @@
+## What changed in v0.7.0
+
+- **The gate refuses to cut a tag origin already holds something else under.** The gap the
+  push-state work left: the release state *named* a divergent `refs/tags/<name>` on origin —
+  after the gate had cut a tag `git push` would refuse. `tag_refusal` now asks origin
+  (`git ls-remote`, the same transport a push uses) before creating: the same object (the
+  interrupted run resuming) is fine, nothing there is fine, and anything else — the same
+  commit with another annotation, or a different commit — is refused with both objects named.
+  An origin that cannot be asked refuses nothing: the tag is local and verifiable, and the
+  release state reports the question as **unproven** instead. A tag this gate already made is
+  a step already done, and keeps the footer's `push` row to name the divergence.
+- **The footer's `release` and `pypi` rows are recorded as facts, so the notes table and the
+  footer cannot describe the release two different ways.** The footer asked GitHub at print time
+  (`gh release view`) and left nothing behind, while the notes table built its index row from the
+  `published` step's facts with wording of its own — so the footer could say "the release already
+  exists" beside notes saying "nothing yet", and nothing tied the two together. The gate now asks
+  GitHub **once per run**, renders the two rows once (`release_state_body` / `pypi_state_body`),
+  and records them in `.git/veyra-pre-release.json` under `state`; the release-notes table shows
+  those exact strings (`| release | … |`, `| pypi | … |`) and the footer prints the same rows under
+  the same labels, from the same ask — a second query beside the recorded one is gone. The
+  unproven discipline reaches the record: a question GitHub could not answer is recorded as
+  `whether the release exists is unproven (<reason>)` with the `gh release create` command kept,
+  and a record that holds no state rows gets `## Not measured` lines naming `release` and `pypi`
+  instead of a plausible row. One phrasing changed on purpose: the command always names
+  `.freebuff/release-notes-<tag>.md` — the file the `notes` step writes is a fact about the
+  release — where it used to substitute `<notes-file>` while the file was missing, which made the
+  recorded row and the footer's row two different texts and handed over a command nobody could
+  paste; whether the file exists is now purely the footer's own warning line.
+- **The published artifact is checked for provenance, not only for payload equality.** "The files
+  match what we built" says nothing about *which commit* the world is installing, and a release is
+  a claim about a commit. The `published` step now reads the released commit's own tree (`git
+  archive`) and requires three things of what the index serves: every member that is not
+  build-generated (`PKG-INFO`, the `[egg_info]` `setup.cfg`, `*.egg-info/*`, `*.dist-info/*`) must
+  be that commit's file byte for byte; a member the commit does not have at all fails as `not in
+  the released commit`, because a file nobody reviewed is worse than a changed one; and every file
+  the commit keeps under `src/` must ship in the published file — which is what catches the stale
+  build, whose members all match the release while the ones added since are silently missing. The
+  released commit is the `v<version>` tag's commit when the tag exists, else HEAD (`--commit` names
+  it explicitly), so the proof is pinned to the release rather than to wherever the tree has
+  wandered. Verified against the real index and a real release: the v0.5.0 files PyPI serves are
+  `44 of 44` and `104 of 104` members identical to a rebuild **and** proven to be built from
+  `a29c70f19a8d`, the tag v0.5.0's commit; pointed at v0.4.4's commit instead, those very same
+  files fail with "the index's files were built from a commit other than the one being released" —
+  payload equality passes there and only provenance rejects it. The proof is content, and it does
+  not lean on an attestation to exist: the v0.5.0 files it was verified against carry none
+  (`provenance` is absent from PyPI's JSON API), while the v0.6.0 upload already publishes PEP 740
+  attestations discoverable from the simple index and the `…/integrity/…` endpoint — and the JSON
+  API omits the field for both, so only a content check can tell them apart. The limit of content
+  is stated in place of being hidden: a commit that changes nothing any artifact carries cannot be
+  told apart from the release. A checkout git cannot describe is left **unproven**
+  (exit 2) rather than passed, and the release-notes row now names the commit the world is
+  installing — the short form as a recorded fact, because no number in a release is typed by hand.
+- **The release state says what origin actually holds, not what this clone remembers.** The `push`
+  line used to print `git push origin <tag>` unconditionally and state its own limit ("it reads
+  local refs only, so it cannot tell whether the tag has already been pushed") — honest, and
+  useless for the one question a releaser asks at that moment. `refs/tags/` records the last fetch,
+  so an unpushed tag looks exactly like one that went up hours ago. The footer now asks the remote
+  (`git ls-remote`, the same transport a push uses) and names what it found: the tag is on origin
+  (nothing to push), it is not (with the command), or origin holds a **different** tag under that
+  name — the same commit with another annotation, or a different commit — with both objects named,
+  because `git push` would refuse that and the command would not be safe to paste. When origin
+  cannot be asked at all (no remote, offline, no credentials), the state is reported **unproven**
+  with the reason rather than filled in from a fetch's memory. Verified against real tags: `v0.6.0`,
+  really pushed, reports "nothing to push"; a real local-only tag reports the push command.
+- **The release state covers the release and the index too.** The `release` row used to print
+  `gh release create …` unconditionally, as if no release could exist yet. It now asks GitHub first
+  (`gh release view`): exists → the command is withheld, because nothing is left to create; absent
+  → the command, named with the title and notes file it needs; anything else (no gh, no
+  credentials, no network, no GitHub remote) → **unproven** with the reason *and* the command,
+  because a question that failed is not an answer. Only GitHub's own `not found` is absence. The
+  new `pypi` row reports what the index serves as the `published` step **measured it in this run**
+  — cited from the recorded facts rather than re-asked, so the footer and the release notes cannot
+  describe PyPI two different ways: the served files named, a version with nothing up yet said so,
+  or **unproven** when this run measured nothing, since an absent measurement is not an absent
+  release. Verified against the real v0.6.0 release (exists), a tag with no release (absent), a
+  machine with no `gh` and a checkout with no GitHub remote (unproven), and facts written by the
+  real `check_published` run against the real index.
+
 ## What changed in v0.6.0
 
 - **The release gate asks the index what it serves, and compares it with the artifact it

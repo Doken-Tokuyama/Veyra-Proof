@@ -101,20 +101,23 @@ The skill resolves the CLI, plans the run, asks before installing anything, and
 then reports the verdict with a path to the evidence directory:
 
 ```
-target/.veyra/evidence/<UTC_TIMESTAMP>/
+<workspace>/.veyra/evidence/<UTC_TIMESTAMP>/
 ├── report.md          # human-readable
 ├── report.json        # machine-readable
 ├── manifest.json      # what ran, what was skipped and why
 └── <tool>/            # per-tool logs and hashes
 ```
 
+The directory is written under the root of the audited workspace (next to its
+`Cargo.toml`), or wherever `--evidence-dir` pointed.
+
 ### Profiles
 
 | Profile | Intent |
 |---|---|
 | `quick` | fmt, check, clippy `-D warnings`, test, `cargo audit`, anti-theater heuristics, end-to-end behavior (if scenarios declared) |
-| `standard` | quick + nextest, coverage, `cargo deny`, `geiger`, `machete`, `semver-checks`, end-to-end behavior (if scenarios declared) |
-| `hardened` | standard + miri, mutants, fuzz, kani, vet, reproducible-build attempt, end-to-end behavior (if scenarios declared) |
+| `standard` | quick + nextest, coverage, `cargo deny`, `geiger`, `machete`, `dylint` (if configured), `semver-checks`, end-to-end behavior (if scenarios declared) |
+| `hardened` | standard + miri, mutants, fuzz, kani, vet, `check-external-types`, reproducible-build attempt, end-to-end behavior (if scenarios declared) |
 
 ### Exit codes
 
@@ -156,7 +159,7 @@ Veyra/
 ├── install.py                    # stdlib-only installer
 ├── skills/
 │   └── veyra-proof/
-│       ├── SKILL.md              # the skill (~1.4k tokens, loaded on trigger)
+│       ├── SKILL.md              # the skill (kept under ~1.6k tokens, loaded on trigger)
 │       └── reference.md          # profiles, exit codes, evidence layout
 └── examples/
     └── veyra.toml                # optional project config

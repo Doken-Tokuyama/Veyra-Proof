@@ -24,7 +24,9 @@ What it writes, to `.freebuff/release-notes-v<version>.md` — the path
 
 * the title, `v<version> — <headline>`, the same string the annotated tag carries;
 * the `## Unreleased` bullets of `changes.md`, verbatim;
-* a `## Verification` table built entirely from recorded facts, with a row omitted
+* a `## Verification` table built entirely from recorded facts — the gate's own
+  footer `release` and `pypi` rows among them, shown verbatim so the notes and the
+  footer cannot describe the release two different ways — with a row omitted
   when the gate did not measure it, and a `## Not measured` section naming what is
   therefore absent. An absent row is a visible limitation; a plausible number
   would be a lie.
@@ -67,6 +69,14 @@ PUBLISHED = "published"
 
 WANTED = (TESTS, PLATFORMS, WHEEL, EVIDENCE, PUBLISHED)
 """The steps whose measurements a verification table is built from."""
+
+STATE_ROWS = ("release", "pypi")
+"""The release-state rows, named as the gate's footer labels them.
+
+Recorded by the gate as ``record["state"]`` — the footer's own rows, asked and
+rendered once — and shown here verbatim, so the notes table and the footer cannot
+describe the release two different ways.
+"""
 
 LEDGER_NAME = "veyra-pre-release.json"
 """The gate's record, inside the real git directory — `pre_release.STATE_NAME`."""
@@ -174,16 +184,37 @@ def _relative(path: str, root: Path) -> str:
 
 
 def verification_rows(
-    measured: dict[str, dict], root: Path, steps: list[str]
+    measured: dict[str, dict], root: Path, steps: list[str], state: dict | None = None
 ) -> tuple[list[str], list[str]]:
-    """The table rows, and the names of the steps that measured nothing.
+    """The table rows, and the names of the checks that measured nothing.
 
     Split out from the writer so the tests can drive both halves — a row that
     appeared without a measurement, or a missing measurement that produced no
     mention, is a defect in a release note rather than a formatting choice.
+
+    The release-state rows come first and are shown *verbatim*: the gate recorded
+    the footer's own rows, and a row re-rendered here would be a second phrasing
+    of the same claim — exactly what recording them exists to prevent.
     """
     rows: list[str] = []
     unmeasured: list[str] = []
+
+    for label in STATE_ROWS:
+        body = (state or {}).get(label)
+        if not (
+            isinstance(body, list)
+            and body
+            and all(isinstance(line, str) for line in body)
+        ):
+            # Nothing recorded is nothing measured: the gate ran without asking,
+            # and an absent measurement is not an absent release.
+            unmeasured.append(label)
+            continue
+        rows.append(
+            f"| `{label}` | "
+            + "<br>".join(line.replace("|", "\\|") for line in body)
+            + " |"
+        )
 
     platforms = _facts(measured, PLATFORMS)
     if platforms is None:
@@ -266,11 +297,19 @@ def verification_rows(
             if entry.get("yanked"):
                 note += ", **yanked**"
             parts.append(note)
+        tail = " — the payload the index serves is the payload this gate checked"
+        short = published.get("released_commit_short")
+        if short:
+            # The row states which commit the world is installing, not only that two
+            # archives matched: that is the half of the claim a release is actually
+            # about. The short form is a recorded fact, never a truncation made here.
+            tail += f", built from `{short}` ({published.get('released_from', '')})"
         rows.append(
             f"| What `{published.get('index', '')}` serves for "
             f"`{published.get('version', '')}` | "
             + "; ".join(parts)
-            + " — the payload the index serves is the payload this gate checked |"
+            + tail
+            + " |"
         )
 
     tests = _facts(measured, TESTS)
@@ -289,11 +328,12 @@ def verification_rows(
             f"{tests.get('cases', 0)} cases collected |"
         )
 
-    # Only these four are wanted. `build` and `copies` prove facts that carry no number
+    # Only these are wanted. `build` and `copies` prove facts that carry no number
     # into a release note, and naming them here as unmeasured would be noise that makes
-    # the real gaps harder to see. Reported in checklist order rather than in the order
-    # the branches happen to run, so the section reads the same every time.
-    return rows, [name for name in WANTED if name in set(unmeasured)]
+    # the real gaps harder to see. Reported in checklist order — the state rows last,
+    # since they are not steps — rather than in the order the branches happen to run,
+    # so the section reads the same every time.
+    return rows, [name for name in (*WANTED, *STATE_ROWS) if name in set(unmeasured)]
 
 
 def render(
@@ -331,7 +371,7 @@ def render(
     if unmeasured:
         out.append("\n## Not measured\n\n")
         out.append(
-            "These steps left no facts in the record, so they are absent from the "
+            "These left no facts in the record, so they are absent from the "
             "table above rather than described from memory:\n"
         )
         out += [f"\n- `{name}`" for name in unmeasured]
@@ -411,7 +451,9 @@ def generate(
         ), None
 
     measured = measurements(record)
-    rows, unmeasured = verification_rows(measured, root, list(WANTED))
+    rows, unmeasured = verification_rows(
+        measured, root, list(WANTED), record.get("state")
+    )
 
     body = render(version, title, bullets, rows, unmeasured, record)
     destination = out or root / ".freebuff" / f"release-notes-v{version}.md"

@@ -16,6 +16,34 @@ stores each member's timestamp, gzip stores one of its own — so two builds of 
 give different bytes and identical payloads. Byte-identity is therefore not the claim
 here, and the report says so in place of implying it.
 
+Provenance is the second half of the claim, and it is not payload equality. "The files
+match what we built" says nothing about *which commit* the world is installing, and a
+release is a claim about a commit. PyPI can carry that answer in a file's attestation
+(``provenance.attestation_url`` in the JSON API) — but this project's uploads have none,
+and the artifacts themselves name no commit, so the only proof left is content: every
+member the index serves has to be exactly what the released commit holds. That is what
+this step checks, by reading the commit's own tree with ``git archive``:
+
+* **every member that is not build-generated** — the source, the tests, the workflows,
+  the skill — must exist in the released commit **byte for byte**;
+* **a member the released commit does not have at all** fails as ``not in the released
+  commit``, because a file nobody reviewed is worse than a changed one;
+* **every file the commit tracks under** ``src/`` **must ship** in the published file —
+  which is what catches the stale build: an artifact made from an older commit can match
+  the release in every member it *has*, while silently missing the ones added since.
+
+"The released commit" is the one being cut: the ``v<version>`` tag's commit when the tag
+exists, else this checkout's HEAD — and ``--commit`` names it explicitly for callers who
+know better. Pinning it to the tag rather than to wherever the tree is now is what lets a
+run on a moved tree still *prove* the published files are the release's own; the payload
+difference that remains there is then described for what it is.
+
+The one thing content cannot distinguish, stated plainly: a commit that changes nothing
+any artifact carries (a `.gitignore` line, this repository's local `AGENTS.md`) produces
+files identical to the release's, and no check of bytes could tell them apart. What is
+proven is that users install the released commit's code; provenance beyond that needs the
+attestation this project does not yet publish.
+
 Three answers, and the middle one is the usual one at tag time:
 
 * **the index has no files for this version** — publishing happens *after* the gate, so
@@ -282,6 +310,149 @@ def released_tree(root: Path, version: str) -> tuple[str | None, str | None]:
     return _git(root, "rev-parse", f"v{version}^{{commit}}"), _git(root, "rev-parse", "HEAD")
 
 
+def released_commit(root: Path, version: str, override: str | None) -> tuple[str | None, str]:
+    """(the commit being released, how it was named).
+
+    The tag is the release: it exists exactly to say which commit the world got, and it
+    keeps saying so after this checkout has moved on. Before the tag exists — the gate
+    runs before it creates one — the release is being cut from HEAD. ``--commit`` settles
+    it for a caller who already knows.
+    """
+    if override:
+        return _git(root, "rev-parse", f"{override}^{{commit}}"), f"named by --commit {override}"
+    tag, head = released_tree(root, version)
+    if tag:
+        return tag, f"the tag v{version}"
+    return head, "HEAD"
+
+
+def commit_tree(root: Path, commit: str) -> dict[str, str] | None:
+    """The commit's files as ``path -> sha256``, or None when git cannot show them.
+
+    Read with ``git archive``, so what is compared is the commit itself rather than a
+    checkout of it: no smudge filters, no uncommitted edits, no dependency on the state
+    of the working tree this script happens to sit in.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "archive", "--format=tar", commit],
+            cwd=root,
+            capture_output=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        with tarfile.open(fileobj=io.BytesIO(completed.stdout), mode="r:") as archive:
+            return {
+                member.name: sha256_bytes(archive.extractfile(member).read())  # type: ignore[union-attr]
+                for member in archive.getmembers()
+                if member.isfile()
+            }
+    except (tarfile.TarError, OSError):
+        return None
+
+
+GENERATED_BASENAMES = {"PKG-INFO", "setup.cfg"}
+PACKAGE_SOURCE = "src/"
+
+
+def generated_member(path: str) -> bool:
+    """A file a build backend writes into the artifact, describing the build.
+
+    ``PKG-INFO`` and the ``[egg_info]`` ``setup.cfg`` land in the sdist, ``*.egg-info/*``
+    beside it, ``*.dist-info/*`` in the wheel; none of them is source and none of them is
+    in any commit. Consulted only for a member with no counterpart in the tree, so a
+    commit that *does* carry one of these names is still compared like any other file.
+    """
+    if path.rsplit("/", 1)[-1] in GENERATED_BASENAMES:
+        return True
+    return any(
+        segment.endswith((".egg-info", ".dist-info")) for segment in path.split("/")
+    )
+
+
+def source_candidates(member: str, kind: str) -> list[str]:
+    """Where in the commit this member came from. An sdist is the tree plus its root
+    directory; a wheel is the package, laid out as the repository lays it out.
+    """
+    if kind == SDIST:
+        stripped = member.split("/", 1)[1] if "/" in member else member
+        return [stripped]
+    return [PACKAGE_SOURCE + member, member]
+
+
+def provenance(
+    served: dict[str, str], kind: str, tree: dict[str, str], label: str
+) -> tuple[dict, list[str]]:
+    """Whether this published file is the released commit's, and how it is not.
+
+    `served` maps member names to the sha256 of their content, `tree` is the released
+    commit's files the same way. Every member must be the commit's own file; every file
+    the commit keeps under `src/` must be shipped. The one-directional check is not
+    enough in either direction: a member comparison alone clears an artifact built from
+    an older commit (its members are all real, just fewer), and a shipped-file comparison
+    alone clears one carrying files no reviewer ever saw.
+    """
+    matched = 0
+    generated: list[str] = []
+    differing: list[str] = []
+    not_in_commit: list[str] = []
+    missing_source: list[str] = []
+    problems: list[str] = []
+
+    for member in sorted(served):
+        hit = next(
+            (path for path in source_candidates(member, kind) if path in tree), None
+        )
+        if hit is None:
+            if generated_member(member):
+                generated.append(member)
+            else:
+                not_in_commit.append(member)
+                problems.append(
+                    f"{member} is in the published file and not in {label} — it was "
+                    "built from a commit other than the one being released"
+                )
+            continue
+        if tree[hit] == served[member]:
+            matched += 1
+        else:
+            differing.append(member)
+            problems.append(
+                f"{member} is not what {label} holds — the published file was built "
+                "from a commit other than the one being released"
+            )
+
+    for path in sorted(tree):
+        if not path.startswith(PACKAGE_SOURCE):
+            continue
+        if kind == SDIST:
+            shipped = any(
+                name == path or name.endswith("/" + path) for name in served
+            )
+        else:
+            shipped = path[len(PACKAGE_SOURCE) :] in served
+        if not shipped:
+            missing_source.append(path)
+            problems.append(
+                f"{path} is in {label} and not in the published file — a stale build "
+                "from a commit other than the one being released"
+            )
+
+    facts = {
+        "members_matched": matched,
+        "generated_members": generated,
+        "differing_members": differing,
+        "not_in_commit": not_in_commit,
+        "missing_source": missing_source,
+        "proven": not problems,
+    }
+    return facts, problems
+
+
 def write_report(path: Path | None, facts: dict, ok: bool) -> None:
     """State the measurement as JSON, so a release note never restates it by hand."""
     if path is None:
@@ -325,6 +496,14 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=TIMEOUT_S,
         help="Seconds for each request to the index (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--commit",
+        default=None,
+        help=(
+            "The commit being released (default: the `v<version>` tag's commit, else "
+            "this checkout's HEAD) — what the published files have to be built from."
+        ),
     )
     parser.add_argument(
         "--report",
@@ -398,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
 
     problems: list[str] = []
     records: list[dict] = []
+    digests_by_file: dict[str, dict[str, str]] = {}
     for entry in served:
         filename = entry["filename"]
         local = dist / filename
@@ -416,6 +596,10 @@ def main(argv: list[str] | None = None) -> int:
         record, found = compare(entry, served_bytes, local)
         records.append(record)
         problems += found
+        try:
+            digests_by_file[filename] = member_digests(served_bytes, record["kind"])
+        except (ValueError, zipfile.BadZipFile, tarfile.TarError, OSError):
+            pass  # unreadable: `compare` already turned that into a failure
 
         if record["missing_local"]:
             print(f"  FAIL   {filename} — nothing in dist/ to compare it with")
@@ -444,37 +628,85 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"  note   yanked on the index: {', '.join(yanked)}")
 
+    commit, origin = released_commit(root, version, args.commit)
+    if args.commit and not commit:
+        print(f"  FAIL  --commit {args.commit} names no commit git can show", file=sys.stderr)
+        return 2
+    tree = commit_tree(root, commit) if commit else None
+    label = f"the released commit {commit[:12]}" if commit else "the released commit"
+    unproven = tree is None
+    provenance_problems: list[str] = []
+    if not unproven:
+        for record in records:
+            digests = digests_by_file.get(record["filename"])
+            if digests is None:
+                continue  # unreadable: already a failure, and nothing here to prove
+            facts_p, found_p = provenance(digests, record["kind"], tree, label)
+            record["provenance"] = facts_p
+            provenance_problems += found_p
+
     facts = {
         "version": version,
         "index": index,
         "published": True,
         "reason": "the index serves this version",
+        "released_commit": commit,
+        # Recorded, not derived later: the release notes cite this form, and every
+        # number in them has to be one the record holds (release_notes.py's own guard).
+        "released_commit_short": commit[:12] if commit else None,
+        "released_from": origin,
         "files": records,
         "files_compared": len(records),
     }
-    write_report(args.report, facts, ok=not problems)
+    write_report(
+        args.report,
+        facts,
+        ok=not problems and not provenance_problems and not unproven,
+    )
 
     print()
     print("=== verdict")
-    if problems:
-        tag, head = released_tree(root, version)
-        print(f"  FAIL  {len(problems)} difference(s) between what the index serves for")
-        print(f"        {version} and what this checkout builds.")
-        if tag and head and tag != head:
-            # The likeliest reading, and one that changes what the reader should do: the
-            # version is already out, this tree is not the tree it came from, and the
-            # artifacts here will never be the ones on the index.
-            print(f"        v{version} names {tag[:12]} and this checkout is {head[:12]}, so the")
-            print("        artifacts built here are not the published ones. Compare the release")
-            print("        on its own tree (`git worktree add <dir> v" + version + "`), or bump the")
-            print("        version and release the new one.")
+    if problems or provenance_problems or unproven:
+        if problems:
+            print(f"  FAIL  {len(problems)} difference(s) between what the index serves for")
+            print(f"        {version} and what this checkout builds.")
+            tag, head = released_tree(root, version)
+            if tag and head and tag != head:
+                # The likeliest reading, and one that changes what the reader should do: the
+                # version is already out, this tree is not the tree it came from, and the
+                # artifacts here will never be the ones on the index.
+                print(f"        v{version} names {tag[:12]} and this checkout is {head[:12]}, so the")
+                print("        artifacts built here are not the published ones. Compare the release")
+                print("        on its own tree (`git worktree add <dir> v" + version + "`), or bump the")
+                print("        version and release the new one.")
+            else:
+                print("        Either the published artifact is not the one this gate checked, or")
+                print("        the tree moved on after the release was published. Nothing here can")
+                print("        repair either: a version cannot be re-uploaded to the index.")
+            for problem in problems:
+                print(f"        - {problem}")
+        if provenance_problems:
+            print(f"  FAIL  the index's files were built from a commit other than the one")
+            print(f"        being released ({label}):")
+            for problem in provenance_problems[:6]:
+                print(f"        - {problem}")
+            if len(provenance_problems) > 6:
+                print(f"        - … {len(provenance_problems) - 6} more")
+        elif unproven:
+            # On stderr with the other "the check could not answer" diagnostics: this is
+            # not a verdict about the release, it is the absence of one.
+            print(
+                "  FAIL  provenance cannot be established: git cannot name the commit "
+                f"this release was cut from in {root}.\n"
+                "        The payload comparison is reported above, but where the published\n"
+                "        files came from is left unproven rather than assumed.",
+                file=sys.stderr,
+            )
         else:
-            print("        Either the published artifact is not the one this gate checked, or")
-            print("        the tree moved on after the release was published. Nothing here can")
-            print("        repair either: a version cannot be re-uploaded to the index.")
-        for problem in problems:
-            print(f"        - {problem}")
-        return 1
+            print(f"        provenance holds: every published file is exactly what {label}")
+            print("        holds, so the published artifact is the release's own — this checkout")
+            print("        is the one that is elsewhere.")
+        return 2 if unproven and not problems and not provenance_problems else 1
 
     print("  PASS  every file the index serves has the payload this gate checked")
     print(
@@ -482,6 +714,9 @@ def main(argv: list[str] | None = None) -> int:
         "is not byte-identical"
     )
     print("        unless it says so above, which is why the payload is what is compared.")
+    print(f"  PASS  provenance: the published files are built from {commit[:12]}, the")
+    print(f"        commit being released ({origin}): every member is what that commit")
+    print("        holds, and every package file under `src/` it has is shipped.")
     return 0
 
 

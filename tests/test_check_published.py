@@ -17,6 +17,12 @@ The other half, the comparison, is driven on synthetic archives because an archi
 just a mapping of names to bytes here; the real thing is exercised end to end against
 PyPI by the gate itself, which is where `44 of 44` and `104 of 104` in the v0.5.0 notes
 came from.
+
+Provenance is the half that needs a *commit*, not just bytes: the step proves the
+published files are the released commit's by reading that commit's tree with `git
+archive`, so every fixture here commits the tree its archives are derived from. A
+fixture whose artifacts and commit disagreed would be testing a disagreement that
+cannot exist; the tests that need one to disagree make it disagree on purpose.
 """
 
 from __future__ import annotations
@@ -77,11 +83,26 @@ def _tar(files: dict[str, bytes], *, when: int = 0) -> bytes:
     return buffer.getvalue()
 
 
-PAYLOAD = {
-    f"veyra_proof/__init__.py": b'__version__ = "9.9.9"\n',
-    f"veyra_proof/cli.py": b"# the tool\n",
+# What the released commit holds. The wheel is the package, the sdist is the tree, and
+# both are derived from this map — so the fixture's artifacts and its git tree cannot
+# disagree unless a test makes them.
+TREE = {
+    "README.md": b"# readme\n",
+    "src/veyra_proof/__init__.py": b'__version__ = "9.9.9"\n',
+    "src/veyra_proof/cli.py": b"# the tool\n",
 }
-SDIST_PAYLOAD = {f"veyra-proof-{VERSION}/README.md": b"# readme\n"}
+PAYLOAD = {
+    "veyra_proof/__init__.py": TREE["src/veyra_proof/__init__.py"],
+    "veyra_proof/cli.py": TREE["src/veyra_proof/cli.py"],
+}
+SDIST_PAYLOAD = {
+    f"veyra-proof-{VERSION}/README.md": TREE["README.md"],
+    **{
+        f"veyra-proof-{VERSION}/{path}": data
+        for path, data in TREE.items()
+        if path.startswith("src/")
+    },
+}
 
 
 class Index:
@@ -149,17 +170,23 @@ class Index:
 
 @pytest.fixture()
 def dist(tmp_path: Path) -> Path:
-    """A checkout's artifacts: the two files the gate would have built.
+    """A committed checkout's artifacts: the two files the gate would have built.
 
     Built twice per shape with different member timestamps on purpose: that is what two
     builds of one commit actually produce, and the whole reason the comparison is by
-    payload rather than by file.
+    payload rather than by file. The tree underneath is committed before `dist/` is
+    written into it, because the provenance half asks which commit the published files
+    came from and must have an answer.
     """
     root = tmp_path / "repo"
     (root / "dist").mkdir(parents=True)
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "{DIST_NAME}"\nversion = "{VERSION}"\n', encoding="utf-8"
     )
+    for path, data in TREE.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_bytes(data)
+    _git_checkout(root)
     (root / "dist" / WHEEL).write_bytes(_zip(PAYLOAD, when=1))
     (root / "dist" / SDIST).write_bytes(_tar(SDIST_PAYLOAD, when=1))
     return root
@@ -190,6 +217,16 @@ def _git_checkout(root: Path) -> None:
     """A committed checkout, so the diagnosis of *which* tree this is has an answer."""
     subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
     _commit(root, "seed")
+
+
+def _head(root: Path) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def _mismatched_index(*, version: str = VERSION) -> Index:
@@ -412,7 +449,6 @@ def test_a_tree_that_is_not_the_released_one_says_so(check, dist, tmp_path, caps
     the failure reads as "your build is broken", which invites somebody to go and
     "fix" a build that is fine.
     """
-    _git_checkout(dist)
     subprocess.run(["git", "tag", f"v{VERSION}"], cwd=dist, check=True, capture_output=True)
     (dist / "later.txt").write_text("work after the release\n", encoding="utf-8")
     _commit(dist, "later")
@@ -434,8 +470,7 @@ def test_a_difference_on_the_released_tree_is_not_explained_away(
     check, dist, tmp_path, capsys
 ) -> None:
     """With no tag to blame, both readings are named and neither is claimed."""
-    _git_checkout(dist)  # committed, but no v9.9.9 tag anywhere
-
+    # The fixture's checkout is committed, but no v9.9.9 tag exists anywhere.
     index = _mismatched_index()
     try:
         code, _ = _run(check, dist, index.host)
@@ -477,3 +512,205 @@ def test_it_runs_as_a_script(dist, tmp_path) -> None:
     assert completed.returncode == 0, completed.stderr
     assert "2 file(s)" in completed.stdout
     assert _facts(report)["facts"]["files_compared"] == 2
+
+
+def test_the_published_files_are_traced_to_the_released_commit(
+    check, dist, tmp_path, capsys
+) -> None:
+    """Provenance: which commit the world is installing, and how it was named."""
+    index = Index(
+        files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2), f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2)}
+    )
+    index.release = index.release_payload([WHEEL, SDIST])
+    report = tmp_path / "published.json"
+    try:
+        code, _ = _run(check, dist, index.host, report=report)
+    finally:
+        index.close()
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "provenance: the published files are built from" in out
+    facts = _facts(report)["facts"]
+    assert facts["released_commit"] == _head(dist)
+    assert facts["released_from"] == "HEAD"
+    # The release notes cite the short form, so it has to be a recorded fact here:
+    # this is the link between the step that measures and the row that states it.
+    assert facts["released_commit_short"] == facts["released_commit"][:12]
+    by_name = {entry["filename"]: entry for entry in facts["files"]}
+    assert by_name[WHEEL]["provenance"]["members_matched"] == len(PAYLOAD)
+    assert by_name[WHEEL]["provenance"]["proven"] is True
+    assert by_name[SDIST]["provenance"]["members_matched"] == len(SDIST_PAYLOAD)
+
+
+def test_a_file_built_from_another_commit_fails_even_when_the_gate_checked_it(
+    check, dist, tmp_path, capsys
+) -> None:
+    """The failure provenance exists for, isolated from payload equality.
+
+    `dist/` and the index agree with each other here — every member matches — and both
+    disagree with the released commit. A check that only compares payloads calls this
+    release fine; it is not fine: the world would be installing another commit's code.
+    """
+    rebuilt = {**PAYLOAD, "veyra_proof/cli.py": b"# the tool, from another commit\n"}
+    (dist / "dist" / WHEEL).write_bytes(_zip(rebuilt, when=1))
+    index = Index(files={f"/files/{WHEEL}": _zip(rebuilt, when=2)})
+    index.release = index.release_payload([WHEEL])
+    report = tmp_path / "published.json"
+    try:
+        code, _ = _run(check, dist, index.host, report=report)
+    finally:
+        index.close()
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "built from a commit other than the one" in out
+    assert "veyra_proof/cli.py is not what the released commit" in out
+    entry = _facts(report)["facts"]["files"][0]
+    assert entry["identical_members"] == len(PAYLOAD), "the payload comparison is clean"
+    assert entry["provenance"]["differing_members"] == ["veyra_proof/cli.py"]
+    assert entry["provenance"]["proven"] is False
+
+
+def test_a_member_the_released_commit_does_not_have_fails(check, dist, tmp_path, capsys) -> None:
+    """A file nobody reviewed is worse than a changed one, and says so."""
+    extra = {**PAYLOAD, "veyra_proof/extra.py": b"# nobody checked this\n"}
+    (dist / "dist" / WHEEL).write_bytes(_zip(extra, when=1))
+    index = Index(files={f"/files/{WHEEL}": _zip(extra, when=2)})
+    index.release = index.release_payload([WHEEL])
+    try:
+        code, _ = _run(check, dist, index.host)
+    finally:
+        index.close()
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert (
+        "veyra_proof/extra.py is in the published file and not in the released commit"
+        in out
+    )
+
+
+def test_a_package_file_the_published_files_do_not_ship_fails(
+    check, dist, tmp_path, capsys
+) -> None:
+    """The stale build: every member it has is the release's own — it just has fewer.
+
+    Built before the release added the module, and matched member for member on
+    everything it did carry. Only the other direction catches it: what the commit has
+    must be shipped.
+    """
+    (dist / "src" / "veyra_proof" / "new.py").write_bytes(b"# added for the release\n")
+    _commit(dist, "add the module")
+    index = Index(
+        files={f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2), f"/files/{WHEEL}": _zip(PAYLOAD, when=2)}
+    )
+    index.release = index.release_payload([SDIST, WHEEL])
+    try:
+        code, _ = _run(check, dist, index.host)
+    finally:
+        index.close()
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "src/veyra_proof/new.py is in the released commit" in out
+    assert "and not in the published file" in out
+    assert "a stale build from a commit other than the one being released" in out
+
+
+def test_the_tag_decides_which_commit_is_being_released(check, dist, tmp_path, capsys) -> None:
+    """The release is the tag's commit, not wherever the tree has wandered since.
+
+    Everything here agrees — this checkout built and checked the very files the index
+    serves — and it is still a failure, because they were built from a commit after the
+    one the tag released. Payload equality cannot see that; pinning the comparison to
+    the tag is what does.
+    """
+    subprocess.run(["git", "tag", f"v{VERSION}"], cwd=dist, check=True, capture_output=True)
+    (dist / "src" / "veyra_proof" / "cli.py").write_bytes(b"# the tool, later\n")
+    _commit(dist, "move on")
+    later = {**PAYLOAD, "veyra_proof/cli.py": b"# the tool, later\n"}
+    (dist / "dist" / WHEEL).write_bytes(_zip(later, when=1))
+    index = Index(files={f"/files/{WHEEL}": _zip(later, when=2)})
+    index.release = index.release_payload([WHEEL])
+    report = tmp_path / "published.json"
+    try:
+        code, _ = _run(check, dist, index.host, report=report)
+    finally:
+        index.close()
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "built from a commit other than the one" in out
+    facts = _facts(report)["facts"]
+    assert facts["released_from"] == f"the tag v{VERSION}"
+    assert facts["files"][0]["provenance"]["differing_members"] == ["veyra_proof/cli.py"]
+
+
+def test_commit_names_the_commit_being_released(check, dist, tmp_path, capsys) -> None:
+    """`--commit` is for the caller who already knows — and an unnameable one is misuse,
+    not a verdict."""
+    subprocess.run(["git", "tag", f"v{VERSION}"], cwd=dist, check=True, capture_output=True)
+    (dist / "src" / "veyra_proof" / "cli.py").write_bytes(b"# the tool, later\n")
+    _commit(dist, "move on")
+    index = Index(files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2)})
+    index.release = index.release_payload([WHEEL])
+    report = tmp_path / "published.json"
+    try:
+        code, _ = _run(check, dist, index.host, "--commit", "HEAD~1", report=report)
+    finally:
+        index.close()
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    seed = subprocess.run(
+        ["git", "rev-parse", "HEAD~1"],
+        cwd=dist,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert _facts(report)["facts"]["released_from"] == "named by --commit HEAD~1"
+    assert _facts(report)["facts"]["released_commit"] == seed
+
+    index = Index(files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2)})
+    index.release = index.release_payload([WHEEL])
+    try:
+        code, _ = _run(check, dist, index.host, "--commit", "not-a-ref")
+    finally:
+        index.close()
+
+    assert code == 2
+    assert "names no commit" in capsys.readouterr().err
+
+
+def test_when_git_cannot_say_which_commit_the_step_is_unproven(
+    check, tmp_path, capsys
+) -> None:
+    """A matching payload is not a provenance.
+
+    Without a commit to compare against the question cannot be answered, and an
+    unanswered question is not a green check — the policy `platforms` applies to CI.
+    """
+    root = tmp_path / "loose"
+    (root / "dist").mkdir(parents=True)
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "{DIST_NAME}"\nversion = "{VERSION}"\n', encoding="utf-8"
+    )
+    (root / "dist" / WHEEL).write_bytes(_zip(PAYLOAD, when=1))
+    (root / "dist" / SDIST).write_bytes(_tar(SDIST_PAYLOAD, when=1))
+    index = Index(
+        files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2), f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2)}
+    )
+    index.release = index.release_payload([WHEEL, SDIST])
+    report = tmp_path / "published.json"
+    try:
+        code, _ = _run(check, root, index.host, report=report)
+    finally:
+        index.close()
+
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "provenance cannot be established" in err
+    assert "unproven rather than assumed" in err
+    assert _facts(report)["ok"] is False

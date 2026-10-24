@@ -706,7 +706,10 @@ def test_the_gate_says_what_is_left_and_what_it_will_not_do(gate, released, tmp_
     assert "gh release create v0.4.2" in out
     assert "publish.yml" in out
     assert "cannot be undone" in out, "the gate must say why it stops here"
-    assert "no origin/main" in out
+    assert "is unproven, not assumed" in out, (
+        "this fixture has no remote, so the gate must admit the push state is unknown "
+        "rather than answer from refs it only fetched once"
+    )
 
 
 def test_the_remaining_report_names_the_notes_file_it_can_see(gate, released, tmp_path, capsys) -> None:
@@ -722,6 +725,185 @@ def test_the_remaining_report_names_the_notes_file_it_can_see(gate, released, tm
     assert "--notes-file .freebuff/release-notes-v0.4.2.md" in out
 
     (released / ".freebuff" / "release-notes-v0.4.2.md").unlink()
+
+
+# --------------------------------------------------------------------------
+# What origin actually holds
+# --------------------------------------------------------------------------
+
+
+def _bare_origin(released: Path, tmp_path: Path) -> Path:
+    """A real remote for the fixture: an empty bare repository wired up as origin.
+
+    Not a stub — `git ls-remote` and `git push` reach it over the same transport
+    they use for a URL on GitHub, so the assertions below are about what a remote
+    answered, not about what a fake one was told to answer.
+    """
+    bare = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True
+    )
+    for argv in (
+        ["git", "remote", "add", "origin", str(bare)],
+        ["git", "push", "-q", "origin", "HEAD:main"],
+    ):
+        subprocess.run(argv, cwd=released, check=True, capture_output=True)
+    return bare
+
+
+@needs_git
+def test_a_tag_that_went_up_is_reported_as_pushed(gate, released, tmp_path, capsys) -> None:
+    """After a real `git push`, the footer must stop asking for one.
+
+    The defect this replaces: a footer that reads local refs cannot tell a tag that
+    went up hours ago from one that exists nowhere else — `refs/tags/` looks the
+    same either way — so it printed `git push` always and called the state a limit.
+    """
+    _bare_origin(released, tmp_path)
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+    assert _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline") == 0
+    capsys.readouterr()  # drain the first run: it printed the tag as unpushed, truthfully
+    subprocess.run(
+        ["git", "push", "-q", "origin", "v0.4.2"],
+        cwd=released,
+        check=True,
+        capture_output=True,
+    )
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "the tag is on origin as" in out and "nothing to push" in out
+    assert "git push origin v0.4.2" not in out, "it asks for a push the remote does not need"
+
+
+@needs_git
+def test_a_tag_only_this_clone_has_is_reported_as_unpushed(gate, released, tmp_path, capsys) -> None:
+    """The other half: same report, tag local-only, so the push command is what is left."""
+    _bare_origin(released, tmp_path)
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "the tag is not on origin — git push origin v0.4.2" in out
+    assert "nothing to push" not in out
+
+
+@needs_git
+def test_a_different_tag_on_origin_refuses_the_tag_instead_of_cutting_it(
+    gate, released, tmp_path, capsys
+) -> None:
+    """Origin holds a v0.4.2 this gate did not make: same commit, another annotation.
+
+    The gap the push-state work exposed: the release state *named* the two objects
+    — after the gate had cut a tag `git push` would refuse. Now the tag is not
+    created at all, and the refusal names both objects the way the report did.
+    """
+    _bare_origin(released, tmp_path)
+    for argv in (
+        ["git", "tag", "-a", "v0.4.2", "-m", "someone else's annotation"],
+        ["git", "push", "-q", "origin", "v0.4.2"],
+        ["git", "tag", "-d", "v0.4.2"],
+    ):
+        subprocess.run(argv, cwd=released, check=True, capture_output=True)
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert _tags(released) == "", "no tag may be cut under a name origin already holds"
+    assert "origin already holds a different v0.4.2" in out
+    assert "the same commit, a different annotation" in out
+    assert "git push would refuse the name" in out
+
+
+@needs_git
+def test_a_tag_this_gate_already_made_still_reports_a_divergent_origin(
+    gate, released, tmp_path, capsys
+) -> None:
+    """When the gate creates nothing, the footer still names both objects.
+
+    Refusing is for the tag being cut; a resumed tag is a step already done, and
+    the divergent origin is the release state's `push` row to name.
+    """
+    _bare_origin(released, tmp_path)
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+    assert _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline") == 0
+    capsys.readouterr()
+    for argv in (
+        ["git", "tag", "-a", "other", "-m", "someone else's annotation"],
+        ["git", "push", "-q", "origin", "other:refs/tags/v0.4.2"],
+    ):
+        subprocess.run(argv, cwd=released, check=True, capture_output=True)
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "already tagged" in out
+    assert "origin holds a different v0.4.2" in out
+    assert "the same commit, a different annotation" in out
+    assert "resolve it before pushing" in out
+
+
+@needs_git
+def test_an_origin_tag_on_another_commit_refuses_the_tag_naming_the_other_commit(
+    gate, released, tmp_path, capsys
+) -> None:
+    """Same name, different history: never call it the same release — or cut over it."""
+    bare = _bare_origin(released, tmp_path)
+    scratch = tmp_path / "scratch"
+    subprocess.run(
+        ["git", "clone", "-q", str(bare), str(scratch)], check=True, capture_output=True
+    )
+    for argv in (
+        ["git", "config", "user.email", "test@example.com"],
+        ["git", "config", "user.name", "Test"],
+    ):
+        subprocess.run(argv, cwd=scratch, check=True, capture_output=True)
+    (scratch / "other.txt").write_text("released elsewhere\n", encoding="utf-8")
+    for argv in (
+        ["git", "add", "-A"],
+        ["git", "commit", "-qm", "another release"],
+        ["git", "tag", "-a", "v0.4.2", "-m", "released elsewhere"],
+        ["git", "push", "-q", "origin", "main", "v0.4.2"],
+    ):
+        subprocess.run(argv, cwd=scratch, check=True, capture_output=True)
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert _tags(released) == "", "no tag may be cut under a name origin already holds"
+    assert "origin already holds a different v0.4.2" in out
+    assert "a different commit" in out
+
+
+@needs_git
+def test_an_origin_that_cannot_be_asked_says_unproven_rather_than_guessing(
+    gate, released, tmp_path, capsys
+) -> None:
+    """Offline or no remote is a state to report, not one to fill in from memory."""
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(tmp_path / "gone.git")],
+        cwd=released,
+        check=True,
+        capture_output=True,
+    )
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "cannot ask it" in out
+    assert "is unproven, not assumed" in out
+    assert "git push origin v0.4.2" in out, "the command stays copy-pasteable when the state does not"
     capsys.readouterr()
 
     assert _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline") == 0
@@ -1093,3 +1275,358 @@ def test_a_checkout_without_a_version_cannot_be_tagged(gate, tmp_path) -> None:
 
     with pytest.raises(FileNotFoundError):
         gate.declared_version(bare)
+
+
+# --------------------------------------------------------------------------
+# What GitHub and the index hold
+# --------------------------------------------------------------------------
+
+
+def test_the_release_presence_is_decided_only_by_githubs_own_answer(gate) -> None:
+    """exists / absent / unproven, from gh's exit and words.
+
+    Only GitHub's own `not found` is a definite absence. The words a checkout
+    without a GitHub remote produces (`no git remotes found`) are a question that
+    failed: reading either of them as absence would hand out create-commands over a
+    release that may be out.
+    """
+    assert gate.gh_release_presence(0, "") == ("exists", "")
+    assert gate.gh_release_presence(1, "release not found") == ("absent", "")
+    assert gate.gh_release_presence(1, "no git remotes found") == (
+        "unproven",
+        "no git remotes found",
+    )
+
+
+def test_the_release_line_withholds_the_command_when_the_release_exists(gate) -> None:
+    lines = gate.release_state_lines(
+        ("exists", ""), "v0.4.2", "a headline", ".freebuff/release-notes-v0.4.2.md", True
+    )
+    out = "\n".join(lines)
+
+    assert "already exists on GitHub" in out
+    assert "gh release create" not in out, "nothing is left to create"
+
+
+def test_the_release_line_keeps_the_command_when_github_cannot_answer(gate) -> None:
+    """A failed question suppresses neither the command nor the honesty."""
+    lines = gate.release_state_lines(
+        ("unproven", "no git remotes found"),
+        "v0.4.2",
+        "a headline",
+        ".freebuff/release-notes-v0.4.2.md",
+        True,
+    )
+    out = "\n".join(lines)
+
+    assert "is unproven (no git remotes found)" in out
+    assert (
+        'gh release create v0.4.2 --title "a headline" '
+        "--notes-file .freebuff/release-notes-v0.4.2.md"
+    ) in out
+
+
+def test_the_release_line_names_the_absent_release_and_its_notes_gap(gate) -> None:
+    """The command names the real notes file; the gap is the footer's own warning.
+
+    It used to print `--notes-file <notes-file>` while the file was missing, which
+    made the recorded row and the footer's row two different texts — and handed the
+    releaser a command nobody could paste. The path is the file the `notes` step
+    writes, a fact about the release rather than about this instant's filesystem.
+    """
+    lines = gate.release_state_lines(
+        ("absent", ""), "v0.4.2", "a headline", ".freebuff/release-notes-v0.4.2.md", False
+    )
+    out = "\n".join(lines)
+
+    assert "no release for this tag on GitHub yet" in out
+    assert "--notes-file .freebuff/release-notes-v0.4.2.md" in out
+    assert "there is no notes file at" in out, (
+        "the missing file is still reported — as a footer-time warning, not by "
+        "rewriting the command"
+    )
+
+
+def test_the_pypi_line_admits_when_nothing_was_measured(gate) -> None:
+    """An absent measurement is not an absent release — the whole discipline."""
+    no_facts = gate.pypi_state_lines(None)
+    unaskable = gate.pypi_state_lines(
+        {
+            "version": "0.4.2",
+            "index": "https://pypi.org",
+            "published": None,
+            "error": "cannot read https://pypi.org/pypi/veyra-proof/0.4.2/json",
+        }
+    )
+
+    assert "unproven — this run measured nothing about it" in no_facts[0]
+    assert "unproven (cannot read https://pypi.org" in unaskable[0]
+    assert "has no files" not in "\n".join(no_facts + unaskable)
+
+
+def test_the_pypi_line_repeats_the_facts_the_published_step_recorded(gate) -> None:
+    """Cited verbatim from the measurement, names and all."""
+    empty = gate.pypi_state_lines(
+        {"version": "0.4.2", "index": "https://pypi.org", "published": False, "files": []}
+    )
+    served = gate.pypi_state_lines(
+        {
+            "version": "0.6.0",
+            "index": "https://pypi.org",
+            "published": True,
+            "files": [
+                {"filename": "veyra_proof-0.6.0-py3-none-any.whl"},
+                {"filename": "veyra_proof-0.6.0.tar.gz"},
+            ],
+        }
+    )
+
+    assert empty == ["  pypi      https://pypi.org has no files for 0.4.2 yet"]
+    assert served == [
+        "  pypi      https://pypi.org serves 0.6.0: "
+        "veyra_proof-0.6.0-py3-none-any.whl, veyra_proof-0.6.0.tar.gz"
+    ]
+
+
+def test_a_machine_without_gh_reports_the_release_unproven(gate, released, monkeypatch) -> None:
+    """No gh is a question that cannot be asked, not a release that does not exist."""
+    monkeypatch.setenv("PATH", "")
+
+    state, why = gate.ask_github_release(released, "v0.4.2")
+
+    assert state == "unproven"
+    assert "FileNotFoundError" in why
+
+
+def _published_step(facts: dict, report: Path):
+    """A `published` step whose command writes what the real one writes."""
+    body = (
+        "import json, pathlib; "
+        f"pathlib.Path(r'{report}').parent.mkdir(parents=True, exist_ok=True); "
+        f"json.dump({{'tool': 'check_published', 'ok': True, 'facts': {facts!r}}}, "
+        f"open(r'{report}', 'w'))"
+    )
+    return lambda gate: gate.Step(
+        "published", "why", (lambda: [sys.executable, "-c", body],), report=report
+    )
+
+
+@needs_git
+def test_the_footer_cites_the_index_facts_this_run_measured(
+    gate, released, tmp_path, capsys
+) -> None:
+    """The pypi row is the `published` step's measurement, cited — never re-asked."""
+    facts = {
+        "version": "0.4.2",
+        "index": "https://pypi.org",
+        "published": True,
+        "files": [
+            {"filename": "veyra_proof-0.4.2-py3-none-any.whl"},
+            {"filename": "veyra_proof-0.4.2.tar.gz"},
+        ],
+    }
+    steps = _build(
+        gate,
+        _counting("tests", tmp_path / "runs.txt"),
+        _published_step(facts, tmp_path / "reports" / "published.json"),
+    )
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert (
+        "pypi      https://pypi.org serves 0.4.2: "
+        "veyra_proof-0.4.2-py3-none-any.whl, veyra_proof-0.4.2.tar.gz"
+    ) in out
+
+
+@needs_git
+def test_a_run_that_measured_nothing_about_the_index_says_unproven(
+    gate, released, tmp_path, capsys
+) -> None:
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "pypi      what the index serves is unproven — this run measured nothing about it" in out
+
+
+# --------------------------------------------------------------------------
+# The footer's rows, recorded — one measurement, two readers
+# --------------------------------------------------------------------------
+
+
+def _ledger(gate, released: Path) -> dict:
+    return json.loads(gate.default_state(released).read_text(encoding="utf-8"))
+
+
+@needs_git
+def test_the_record_carries_the_rows_the_footer_prints(
+    gate, released, tmp_path, capsys, monkeypatch
+) -> None:
+    """The footer's `release` and `pypi` rows are facts in the record now.
+
+    Before, the footer asked GitHub at print time and left nothing behind, so the
+    release notes could describe the release some other way — or not at all. The
+    rows are recorded, and the footer prints the same rows from the same ask.
+    """
+    monkeypatch.setattr(gate, "ask_github_release", lambda root, name: ("absent", ""))
+    facts = {
+        "version": "0.4.2",
+        "index": "https://pypi.org",
+        "published": True,
+        "files": [{"filename": "veyra_proof-0.4.2-py3-none-any.whl"}],
+    }
+    steps = _build(
+        gate,
+        _counting("tests", tmp_path / "runs.txt"),
+        _published_step(facts, tmp_path / "reports" / "published.json"),
+    )
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+    rows = _ledger(gate, released)["state"]
+
+    assert code == 0
+    assert rows["release"] == [
+        "no release for this tag on GitHub yet",
+        "gh release create v0.4.2 --title \"v0.4.2 — a headline\" "
+        "--notes-file .freebuff/release-notes-v0.4.2.md",
+    ]
+    assert rows["pypi"] == [
+        "https://pypi.org serves 0.4.2: veyra_proof-0.4.2-py3-none-any.whl"
+    ]
+    for line in rows["release"] + rows["pypi"]:
+        assert line in out, f"the footer printed a row the record does not hold: {line}"
+
+
+@needs_git
+def test_github_is_asked_once_and_cited_by_record_and_footer(
+    gate, released, tmp_path, capsys, monkeypatch
+) -> None:
+    """A second ask beside the recorded one could contradict it — so there is none.
+
+    `check_published` is the pipeline's measuring step and everything cites it;
+    GitHub's releases have no step, so the gate's one ask *is* the measurement. A
+    footer that asked again at print time could say "exists" about notes saying
+    "unproven": the exact defect recording the rows exists to close.
+    """
+    asks: list[str] = []
+
+    def fake_ask(root, name):
+        asks.append(name)
+        return ("exists", "")
+
+    monkeypatch.setattr(gate, "ask_github_release", fake_ask)
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+    rows = _ledger(gate, released)["state"]
+
+    assert code == 0
+    assert asks == ["v0.4.2"], "GitHub must be asked once per run, and then only cited"
+    assert rows["release"] == [
+        "the release already exists on GitHub — gh release view v0.4.2 found it"
+    ]
+    assert rows["release"][0] in out
+    assert "gh release create" not in out, "nothing is left to create"
+
+
+@needs_git
+def test_a_github_question_that_could_not_be_asked_is_recorded_as_unproven(
+    gate, released, tmp_path, capsys, monkeypatch
+) -> None:
+    """The unproven discipline reaches the record: a failed question is no answer."""
+    monkeypatch.setattr(
+        gate,
+        "ask_github_release",
+        lambda root, name: ("unproven", "no git remotes found"),
+    )
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+    rows = _ledger(gate, released)["state"]
+
+    assert code == 0
+    assert rows["release"][0] == (
+        "whether the release exists is unproven (no git remotes found)"
+    )
+    assert rows["release"][0] in out
+    assert any(
+        line.startswith("gh release create") for line in rows["release"]
+    ), "a question that failed suppresses nothing"
+
+
+@needs_git
+def test_the_recorded_command_names_the_notes_file_whether_or_not_it_exists_yet(
+    gate, released, tmp_path, capsys, monkeypatch
+) -> None:
+    """Recorded before the notes step runs, so the row cannot depend on the file.
+
+    The path is the file this run's `notes` step writes; the row is recorded before
+    that step runs. Naming `<notes-file>` instead would have put a different command
+    in the record than the footer prints — two descriptions of one release again.
+    """
+    monkeypatch.setattr(gate, "ask_github_release", lambda root, name: ("absent", ""))
+    steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
+
+    code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
+    out = capsys.readouterr().out
+    rows = _ledger(gate, released)["state"]
+
+    assert code == 0
+    assert not (released / ".freebuff" / "release-notes-v0.4.2.md").exists()
+    assert any(
+        "--notes-file .freebuff/release-notes-v0.4.2.md" in line
+        for line in rows["release"]
+    )
+    assert "--notes-file <notes-file>" not in out
+    assert "there is no notes file at .freebuff/release-notes-v0.4.2.md" in out, (
+        "the missing file is still reported — as the footer's own warning"
+    )
+
+
+def _gh_reaches_github() -> str | None:
+    """None when `gh` can read this repository's own project, else the reason not.
+
+    Checked against *gh itself*, not against this gate: transport trouble skips with
+    a reason, while a defect in how the gate reads gh's answer still fails the test.
+    """
+    if shutil.which("gh") is None:
+        return "gh is not installed"
+    completed = subprocess.run(
+        ["gh", "api", "repos/Doken-Tokuyama/Veyra-Proof"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        first = (completed.stderr.strip().splitlines() or ["no answer"])[0]
+        return f"gh cannot read GitHub: {first}"
+    return None
+
+
+def test_live_the_release_that_is_already_out_reads_as_existing(gate) -> None:
+    """v0.6.0: published from this checkout, and GitHub has held it since."""
+    reason = _gh_reaches_github()
+    if reason:
+        pytest.skip(reason)
+
+    state, why = gate.ask_github_release(REPO_ROOT, "v0.6.0")
+
+    assert (state, why) == ("exists", "")
+
+
+def test_live_a_tag_with_no_release_reads_as_absent_not_as_unproven(gate) -> None:
+    reason = _gh_reaches_github()
+    if reason:
+        pytest.skip(reason)
+
+    state, why = gate.ask_github_release(REPO_ROOT, "v0.6.0-no-such-release")
+
+    assert (state, why) == ("absent", "")
