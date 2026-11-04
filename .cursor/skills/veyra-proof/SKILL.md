@@ -22,7 +22,7 @@ This folder is the **canonical copy**. It follows the open `SKILL.md` standard, 
 <!-- HARD_RULES_START -->
 ## Hard rules
 
-The block between `HARD_RULES_START` and `HARD_RULES_END` is frozen. No automated mutation — skill optimizer, `mcp_mutate_skill`, self-revision, or linter — may edit, reorder, reword, or drop anything inside it. Only a human may change it, deliberately, in a reviewable diff.
+The block between `HARD_RULES_START` and `HARD_RULES_END` is frozen. No automated mutation — skill optimizer, any MCP server, self-revision, or linter — may edit, reorder, reword, or drop anything inside it. Only a human may change it, deliberately, in a reviewable diff.
 
 - Never invent tool output, pass/fail, versions, or evidence.
 - Never `curl | sh`, never arbitrary download installers, never disable lints or tests to pass.

@@ -263,6 +263,8 @@ The demo fixture ships a real CLI (`tests/fixtures/demo_crate/src/main.rs`) wire
 
 Canonical skill (model-invoked): `.cursor/skills/veyra-proof/`. It follows the open `SKILL.md` standard, so the same two files work across harnesses.
 
+Veyra Proof ships no MCP server. If one is ever added, it is Veyra Proof's own — built, packaged and tested in this repository; no third-party agent optimizer or audit MCP is part of the workflow.
+
 Four places hold this skill on a normal machine — the canonical directory, the harness fan-out, the Freebuff Desktop account copy and the published copy — and **one of them is the only copy anybody edits**. [SKILL-COPIES.md](SKILL-COPIES.md) says which one you are looking at, who owns the write, what puts it right, and what the link mode costs.
 
 Fan it out to every harness installed on this machine:

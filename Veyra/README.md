@@ -172,7 +172,7 @@ time the skill triggers, so maintainer material lives in this README instead.
 
 The safety rules in `SKILL.md` sit between `HARD_RULES_START` and
 `HARD_RULES_END`. **Never edit inside that region.** Automated mutators — skill
-optimizers, `mcp_mutate_skill`, self-revision — are forbidden from touching it,
+optimizers, any MCP server, self-revision — are forbidden from touching it,
 because those rules are the reason the output is trustworthy.
 
 ## Contributing
