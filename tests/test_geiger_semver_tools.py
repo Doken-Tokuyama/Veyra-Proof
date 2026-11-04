@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from veyra_proof.config import PolicyConfig, VeyraConfig
+from veyra_proof.config import PolicyConfig, SemverConfig, VeyraConfig, load_veyra_config
 from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo
 from veyra_proof.tools.base import AuditContext
@@ -79,6 +79,7 @@ def make_context(
     root_package: dict | None = None,
     packages: list[dict] | None = None,
     policy: PolicyConfig | None = None,
+    semver: SemverConfig | None = None,
 ) -> AuditContext:
     return AuditContext(
         workspace=_workspace(
@@ -92,7 +93,7 @@ def make_context(
             ],
         ),
         platform=_platform(),
-        config=VeyraConfig(policy=policy or PolicyConfig()),
+        config=VeyraConfig(policy=policy or PolicyConfig(), semver=semver or SemverConfig()),
         runner=runner,
         evidence_dir=tmp_path / "evidence",
         profile="standard",
@@ -260,6 +261,73 @@ def test_semver_unpublished_crate_is_skipped_with_reason_not_findings(tmp_path) 
     assert tool_result.environment["skip_kind"] == "intentional"
     assert "baseline" in tool_result.summary
     assert tool_result.findings == []
+
+
+def test_semver_configured_git_baseline_is_passed_to_the_tool(tmp_path) -> None:
+    runner = ScriptedRunner([result()])
+    ctx = make_context(
+        tmp_path,
+        runner,
+        semver=SemverConfig(baseline="v0.9.1", release_type="patch"),
+    )
+
+    tool_result = SemverChecksTool().run(ctx)
+
+    assert runner.calls == [[
+        "cargo", "semver-checks", "check-release",
+        "--baseline-rev", "v0.9.1", "--release-type", "patch",
+    ]]
+    assert tool_result.status == "OK"
+
+
+BAD_BASELINE_OUTPUT = (
+    "     Cloning vNOPE-9.9.9\n"
+    "error: couldn't parse revision: \"vNOPE-9.9.9^{tree}\"\n"
+    "\n"
+    "Caused by:\n"
+    "    The ref partially named \"vNOPE-9.9.9\" could not be found\n"
+)
+
+
+def test_semver_unresolvable_baseline_is_an_error_not_a_violation(tmp_path) -> None:
+    """Measured against cargo-semver-checks 0.50.0: an unknown --baseline-rev exits
+    101 with "couldn't parse revision". Reporting that as semver-violation would
+    accuse the crate of an API break over a typo in `veyra.toml`, and the log would
+    not back the claim.
+    """
+    runner = ScriptedRunner([result(exit_code=101, stderr=BAD_BASELINE_OUTPUT)])
+    ctx = make_context(tmp_path, runner, semver=SemverConfig(baseline="vNOPE-9.9.9"))
+
+    tool_result = SemverChecksTool().run(ctx)
+
+    assert tool_result.status == "ERROR"
+    assert tool_result.findings == []
+    assert "101" in tool_result.summary
+
+
+def test_semver_non_zero_exit_without_breakage_markers_is_an_error(tmp_path) -> None:
+    """A rejected flag likewise observed no breaking change."""
+    runner = ScriptedRunner(
+        [result(exit_code=2, stderr="error: unexpected argument '--release-type' found\n")]
+    )
+    ctx = make_context(tmp_path, runner, semver=SemverConfig(release_type="patch"))
+
+    tool_result = SemverChecksTool().run(ctx)
+
+    assert tool_result.status == "ERROR"
+    assert tool_result.findings == []
+
+
+def test_semver_baseline_is_loaded_from_veyra_toml(tmp_path) -> None:
+    (tmp_path / "veyra.toml").write_text(
+        '[semver]\nbaseline = "v0.9.1"\nrelease_type = "patch"\n',
+        encoding="utf-8",
+    )
+
+    config = load_veyra_config(tmp_path)
+
+    assert config.semver.baseline == "v0.9.1"
+    assert config.semver.release_type == "patch"
 
 
 def test_every_evidence_log_is_pinned_by_its_digest(tmp_path) -> None:

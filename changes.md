@@ -1,5 +1,49 @@
 ## What changed in v0.7.0
 
+- **A `veyra.toml` this tool cannot read is exit 2, not exit 3.** It used to surface as
+  `INTERNAL ERROR: Expected '=' after a key …` — the code that means the auditor crashed, in a
+  message that named no file — so CI would report a broken tool and a reader would go looking
+  in the wrong program. `load_veyra_config` now raises `ConfigError` naming the file and the
+  TOML line, and the CLI prints it as `ERROR:` with exit 2 (usage), on both `plan` and `audit`.
+  Invalid values (a string where a number belongs) take the same path.
+- **A typo in `--include`/`--exclude` refuses the run instead of warning beside a verdict.**
+  `--include nope` printed a warning and then wrote an INCONCLUSIVE audit whose reason said
+  the required tools were "missing or not executable" — advice to install what was already
+  installed, about a run nobody asked for. Both flags are now checked against the registry
+  before any detection or evidence directory; an unknown id prints the flag, the ids and the
+  command that lists valid ones, and exits 2. `plan` and `audit` agree, where `plan` used to
+  exit 0 on the same input.
+- **A required tool turned off on purpose is no longer described as missing.** When `--exclude`
+  or `[tools] disable` removes everything a profile requires, the verdict now says the tools
+  were turned off by the flag or the file, rather than sending the reader after binaries that
+  are present.
+- **Two runs never write into one evidence tree any more.** The default directory is named by
+  the UTC second, and `--evidence-dir` was used as given, so a second audit into either place
+  left its `report.json` beside the first run's `tools/rustfmt/result.json`. Measured: a run
+  asking only for `audit` came back with both directories, naming one tool in its own report,
+  while the tree held two — evidence that attributed to a verdict a check that verdict never
+  ran. An existing path now gets a deterministic suffix (`…Z-2`, `…Z-3`) instead of being
+  reused, so each verdict's evidence describes only the run that produced it and both are
+  recorded in their own `manifest.json`.
+- **`cargo-semver-checks` can be pointed at a Git baseline.** An unpublished workspace has
+  no registry version to diff against, so the tool was skipped there with that reason and
+  the release check simply did not happen. `veyra.toml` now takes `[semver] baseline =
+  "v0.9.1"` (passed as `--baseline-rev`) and an optional `release_type` (`--release-type`).
+  The command `plan` prints is built by the same function the run uses, so a plan cannot
+  describe a command that does not run.
+- **A failure that observed no breaking change is no longer reported as one.** Measured with
+  cargo-semver-checks 0.50.0: an unknown `--baseline-rev` exits 101 with "couldn't parse
+  revision", and a rejected flag exits 2. Both used to become a `semver-violation` finding —
+  the crate accused of an API break over a typo in `veyra.toml`, with a log that never said
+  it. The finding now requires the tool's own breakage markers (its `Summary semver requires
+  new …` line or a `--- failure` block); anything else is `ERROR`, naming the exit code. The
+  unpublished-crate skip also stops being the answer once a baseline was configured: that
+  question was not answered either, and "no baseline" would be a false description of what
+  happened.
+- **Python 3.14 is declared and tested.** The suite runs on 3.14 locally, and CI now builds
+  the matrix on 3.10, 3.13 and 3.14 so the classifier is a claim somebody checks. Root
+  `README.md` names the `[semver]`  section; both copies of the skill (`reference.md`) document
+  it and the safety rule that a baseline must be a revision git can resolve.
 - **The gate refuses to cut a tag origin already holds something else under.** The gap the
   push-state work left: the release state *named* a divergent `refs/tags/<name>` on origin —
   after the gate had cut a tag `git push` would refuse. `tag_refusal` now asks origin

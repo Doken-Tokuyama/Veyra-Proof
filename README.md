@@ -213,7 +213,7 @@ excluded from the weak-oracle rule: a libfuzzer target asserts through the engin
 |------|---------|
 | 0 | Required checks completed without blocking findings |
 | 1 | Problems / findings / rejection |
-| 2 | Missing prerequisites, unauthorized install, or required tools not executable |
+| 2 | Missing prerequisites, unauthorized install, required tools not executable, an unknown tool id in `--include`/`--exclude`, or a `veyra.toml` that cannot be read |
 | 3 | Internal application error |
 
 `--fail-on none` accepts the run whatever the findings are; the findings are still in
@@ -222,13 +222,13 @@ unauthorized project file change — that is a broken safety promise, not a tuna
 
 ## Evidence output
 
-Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` containing `report.md`, `report.json`, `manifest.json`, per-tool logs, and hashes.
+Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` containing `report.md`, `report.json`, `manifest.json`, per-tool logs, and hashes. The stamp counts seconds, so a run that would land in a directory that already exists writes beside it (`<UTC_TIMESTAMP>-2`, `-3`, …) instead of overwriting: an existing `--evidence-dir` is treated the same way, because a reused directory would otherwise sit this run's `report.json` next to another run's `tools/<id>/result.json`, and nothing in it would say so.
 
 Each tool's logs are pinned by sha256 in the report, so the evidence can be checked against the claim rather than trusted: `python scripts/ci_assert_evidence.py <workspace-path>` runs a real audit of that workspace root and then recomputes the digests, failing when a log was edited after the run, is missing, or backs an `OK` verdict without ever being pinned. The argument is a workspace path (a directory containing `Cargo.toml`), not an evidence directory.
 
 ## Optional `veyra.toml`
 
-Not created automatically. See the project specification for the full schema (`critical_paths`, policy flags, fuzz targets, mutants paths, `[e2e]` scenarios, etc.).
+Not created automatically. See the project specification for the full schema (`critical_paths`, policy flags, fuzz targets, mutants paths, `[e2e]` scenarios, etc.). For an unpublished workspace, `[semver] baseline = "v0.9.1"` (and optionally `release_type`) gives `cargo-semver-checks` a Git baseline instead of a registry version; without one the tool is skipped with that reason. A baseline git cannot resolve is reported `ERROR` with the exit code — never as an API break.
 
 ## End-to-end behavior (`veyra-e2e`)
 

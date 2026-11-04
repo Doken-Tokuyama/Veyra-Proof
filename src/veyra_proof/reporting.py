@@ -20,6 +20,27 @@ def default_evidence_dir(workspace_root: Path, timestamp: str | None = None) -> 
     return workspace_root / ".veyra" / "evidence" / ts
 
 
+def unique_evidence_dir(base: Path) -> Path:
+    """A path no earlier run has written to, derived from ``base`` without a random part.
+
+    Reusing a directory made evidence that lied about itself: two audits into the same
+    ``--evidence-dir`` (or two runs in the same second, since the stamp counts seconds)
+    left the second run's ``report.json`` beside the first run's
+    ``tools/rustfmt/result.json``. Nothing recorded that the tool list belonged to
+    another run, so the directory attributed work to a verdict that never did it — in a
+    tool whose product *is* reproducible evidence, that is the defect it exists to
+    catch. Suffixing rather than overwriting keeps both runs readable, and both paths
+    are recorded in each ``manifest.json``, so the trace back is exact.
+    """
+    if not base.exists():
+        return base
+    for attempt in range(2, 1000):
+        candidate = base.with_name(f"{base.name}-{attempt}")
+        if not candidate.exists():
+            return candidate
+    raise OSError(f"no free evidence directory beside {base}")
+
+
 def _skip_kind(result: ToolResult) -> str:
     return result.environment.get("skip_kind", "unknown")
 
@@ -31,6 +52,7 @@ def decide(
     required_tool_ids: list[str],
     hash_incongruence: bool = False,
     missing_required: list[str] | None = None,
+    excluded_required: list[str] | None = None,
 ) -> AuditDecision:
     """
     Decision rules:
@@ -46,6 +68,7 @@ def decide(
     - Optional INCONCLUSIVE only rejects when fail_on=inconclusive.
     """
     missing = list(missing_required or [])
+    excluded = list(excluded_required or [])
     by_id = {r.tool_id: r for r in results}
     required = set(required_tool_ids)
 
@@ -107,27 +130,24 @@ def decide(
     if error_findings:
         return AuditDecision("REJECTED", f"Error finding(s): {_join(error_findings)}", 1)
 
-    if fail_on == "findings" and (warning_findings or error_findings or blockers):
+    if fail_on == "findings" and warning_findings:
         named = f": {_join(warning_labels)}" if warning_labels else ""
         return AuditDecision("REJECTED", f"Findings reported under --fail-on findings{named}", 1)
-
-    # Also catch FINDINGS with only warnings already handled; FINDINGS with empty visible?
-    if fail_on == "findings" and any(
-        r.status in {"FINDINGS", "INCONCLUSIVE"}
-        and any(f.severity in {"warning", "error", "blocker"} for f in r.findings)
-        for r in results
-    ):
-        return AuditDecision("REJECTED", "Findings reported under --fail-on findings", 1)
 
     if tool_errors:
         return AuditDecision("REJECTED", f"Tool error(s): {_join(tool_errors)}", 1)
 
-    if missing or missing_skips:
-        return AuditDecision(
-            "INCONCLUSIVE",
-            "Required tool(s) missing or not executable: " + _join(missing + missing_skips, 12),
-            2,
-        )
+    if missing or missing_skips or excluded:
+        absent = [tid for tid in missing + missing_skips if tid not in excluded]
+        parts: list[str] = []
+        if absent:
+            parts.append("Required tool(s) missing or not executable: " + _join(absent, 12))
+        if excluded:
+            parts.append(
+                "Required tool(s) turned off by --exclude or veyra.toml [tools]: "
+                + _join(excluded, 12)
+            )
+        return AuditDecision("INCONCLUSIVE", ". ".join(parts), 2)
 
     if inconclusive_required:
         if fail_on == "inconclusive":

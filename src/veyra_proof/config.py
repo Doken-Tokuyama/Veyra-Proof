@@ -14,6 +14,10 @@ else:
     import tomli as tomllib  # type: ignore[no-redef]
 
 
+class ConfigError(Exception):
+    """A ``veyra.toml`` this tool cannot read. A usage error, not a crash."""
+
+
 @dataclass
 class ProjectConfig:
     critical_paths: list[str] = field(default_factory=list)
@@ -50,6 +54,19 @@ class PolicyConfig:
 class ToolsConfig:
     enable: list[str] = field(default_factory=list)
     disable: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SemverConfig:
+    """Optional explicit baseline for cargo-semver-checks.
+
+    An unpublished workspace has no registry version to diff against. The
+    project can name a Git tag here; the tool then passes it as
+    ``--baseline-rev`` instead of guessing from the registry.
+    """
+
+    baseline: str | None = None
+    release_type: str | None = None
 
 
 @dataclass
@@ -135,6 +152,7 @@ class VeyraConfig:
     e2e: E2eConfig = field(default_factory=E2eConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    semver: SemverConfig = field(default_factory=SemverConfig)
     mutants: MutantsConfig = field(default_factory=MutantsConfig)
     fuzz: FuzzConfig = field(default_factory=FuzzConfig)
     kani: KaniConfig = field(default_factory=KaniConfig)
@@ -283,16 +301,33 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
 
 
 def load_veyra_config(workspace_root: Path) -> VeyraConfig:
+    """Load ``veyra.toml``, or explain why it cannot be read.
+
+    A configuration this tool cannot parse is the operator's mistake, not a bug
+    here: reporting it as an internal error (exit 3) both blamed the wrong party
+    and named no file, so the one thing a reader needed — which line of which
+    file — was missing.
+    """
     path = workspace_root / "veyra.toml"
     if not path.is_file():
         return VeyraConfig(defaults_used=True, source_path=None)
 
+    try:
+        return _load_config_file(path)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{path}: not valid TOML: {exc}") from exc
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{path}: invalid value: {exc}") from exc
+
+
+def _load_config_file(path: Path) -> VeyraConfig:
     with path.open("rb") as handle:
         raw = tomllib.load(handle)
 
     project = _section(raw, "project")
     policy = _section(raw, "policy")
     tools = _section(raw, "tools")
+    semver = _section(raw, "semver")
     mutants = _section(raw, "mutants")
     fuzz = _section(raw, "fuzz")
     kani = _section(raw, "kani")
@@ -321,6 +356,10 @@ def load_veyra_config(workspace_root: Path) -> VeyraConfig:
         tools=ToolsConfig(
             enable=list(tools.get("enable", []) or []),
             disable=list(tools.get("disable", []) or []),
+        ),
+        semver=SemverConfig(
+            baseline=semver.get("baseline") or None,
+            release_type=semver.get("release_type") or None,
         ),
         mutants=MutantsConfig(
             paths=list(mutants.get("paths", []) or []),

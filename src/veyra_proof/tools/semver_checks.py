@@ -17,6 +17,15 @@ NO_BASELINE_MARKERS = (
     "no published version",
 )
 
+# What cargo-semver-checks prints when it has *concluded* the crate breaks: the
+# summary line and the per-lint marker. Any other non-zero exit is the tool
+# failing (unknown --baseline-rev, bad flag, no git history), and calling that an
+# API break would accuse the crate of something nobody observed.
+VIOLATION_MARKERS = (
+    "summary semver requires new",
+    "--- failure",
+)
+
 
 class SemverChecksTool(Tool):
     id = "semver-checks"
@@ -39,9 +48,19 @@ class SemverChecksTool(Tool):
     def install_plan(self, context: AuditContext):
         return cargo_install_plan(self.id, self.display_name, "cargo-semver-checks")
 
+    @staticmethod
+    def _command(context: AuditContext) -> list[str]:
+        cmd = ["cargo", "semver-checks", "check-release"]
+        baseline = context.config.semver.baseline
+        if baseline:
+            cmd.extend(["--baseline-rev", baseline])
+        release_type = context.config.semver.release_type
+        if release_type:
+            cmd.extend(["--release-type", release_type])
+        return cmd
 
     def planned_commands(self, context: AuditContext):
-        return [["cargo", "semver-checks", "check-release"]]
+        return [self._command(context)]
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
@@ -49,8 +68,7 @@ class SemverChecksTool(Tool):
         include = {x.strip() for x in context.include}
         if not libs and "semver-checks" not in include:
             return self.skipped(context, "no public library crates detected for semver-checks")
-        # Without an explicit baseline, semver-checks may fail — treat as SKIPPED not ERROR
-        cmd = ["cargo", "semver-checks", "check-release"]
+        cmd = self._command(context)
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
         text = (result.stdout + "\n" + result.stderr).lower()
@@ -61,15 +79,17 @@ class SemverChecksTool(Tool):
             status, severity, summary = "ERROR", "error", result.error or "semver-checks failed"
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "semver-checks passed"
-        elif any(m in text for m in NO_BASELINE_MARKERS):
+        elif any(m in text for m in NO_BASELINE_MARKERS) and not context.config.semver.baseline:
             # Crates with no published version have no registry baseline to diff
             # against; the check cannot run, so it is skipped with the reason,
-            # never reported as a pass or as a violation.
+            # never reported as a pass or as a violation. A baseline the project
+            # configured is a different question: it was not answered either, and
+            # that is the tool failing, below.
             return self.skipped(
                 context,
                 "semver-checks has no baseline for unpublished crates (no registry version to diff); configure a baseline or skip",
             )
-        else:
+        elif any(m in text for m in VIOLATION_MARKERS):
             findings.append(Finding(
                 rule="semver-violation",
                 severity="error",
@@ -79,6 +99,15 @@ class SemverChecksTool(Tool):
                 recommendation="Review breaking changes and version accordingly.",
             ))
             status, severity, summary = "FINDINGS", "error", "semver violations"
+        else:
+            # Measured with cargo-semver-checks 0.50.0: an unknown
+            # ``--baseline-rev`` exits 101 with "couldn't parse revision", and a
+            # rejected flag exits 2. Neither observed a breaking change, so
+            # neither may be reported as one.
+            status, severity, summary = "ERROR", "error", (
+                f"semver-checks failed (exit {result.exit_code}) without reporting "
+                "API breakage; check the baseline revision and flags"
+            )
         tr = self.make_result(
             status=status, severity=severity, summary=summary, started_at=started,
             command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,

@@ -271,7 +271,17 @@ def select_tools(
     return selected
 
 
-def unknown_include_ids(include: Iterable[str] | None) -> list[str]:
-    include_set = {x.strip() for x in (include or []) if x.strip()}
+def unknown_tool_ids(ids: Iterable[str] | None) -> list[str]:
+    """Ids that name no tool in this release.
+
+    A typo here means a check the operator asked to run (or to leave out) never
+    happened. Callers refuse the run rather than warn past it: a warning beside
+    an audit that still writes a verdict is how a typo becomes a false green.
+    """
+    wanted = {x.strip() for x in (ids or []) if x.strip()}
     known = set(tool_by_id()) | {"cargo"}
-    return sorted(include_set - known)
+    return sorted(wanted - known)
+
+
+def unknown_include_ids(include: Iterable[str] | None) -> list[str]:
+    return unknown_tool_ids(include)

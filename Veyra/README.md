@@ -109,7 +109,9 @@ then reports the verdict with a path to the evidence directory:
 ```
 
 The directory is written under the root of the audited workspace (next to its
-`Cargo.toml`), or wherever `--evidence-dir` pointed.
+`Cargo.toml`), or wherever `--evidence-dir` pointed. If that path already exists,
+the run writes beside it (`<name>-2`, `-3`, …) rather than into it: reusing a
+directory left one run's per-tool results under another run's report.
 
 ### Profiles
 

@@ -65,13 +65,28 @@ Do not claim more coverage than a command provided:
 reported and only blocks when asked for: `fail_on_ignored_tests`, `fail_on_panic`,
 `fail_on_lint_allow`, `fail_on_weak_oracles`, `fail_on_cfg_tricks`, `deny_unsafe`.
 
+## Semver baseline (`veyra.toml` `[semver]`)
+
+An unpublished crate has no registry version to diff against, so
+`cargo-semver-checks` is `SKIPPED` with that reason — never `OK`. Name a Git
+revision instead:
+
+```toml
+[semver]
+baseline = "v0.9.1"     # passed as --baseline-rev
+release_type = "patch"  # optional; passed as --release-type
+```
+
+The command `plan` prints is the command that runs. A baseline git cannot resolve
+is the tool failing — `ERROR`, naming the exit code — and never an API break.
+
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Required checks completed without blocking findings |
 | 1 | Problems / findings / rejection |
-| 2 | Missing prerequisites, unauthorized install, or required tools not executable |
+| 2 | Missing prerequisites, unauthorized install, required tools not executable, an unknown tool id in `--include`/`--exclude`, or an unreadable `veyra.toml` |
 | 3 | Internal application error |
 
 ## End-to-end behavior (`veyra-e2e`)
@@ -119,6 +134,7 @@ Every log a tool writes — `stdout.log`, `stderr.log`, and `skip.txt` when a to
 |--------|---------|
 | Modify `Cargo.toml` | Forbidden |
 | Rewrite `Cargo.lock` during a run | Forbidden — cargo runs with `--locked` |
+| Invent a semver baseline | Forbidden — `[semver] baseline` must be a revision git can resolve |
 | `cargo update` | Needs `--update-lockfile` |
 | Install tools | Needs `--install-missing` + confirm or `--yes` |
 | `curl \| sh` | Never |

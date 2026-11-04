@@ -13,7 +13,7 @@ from typing import Sequence
 
 from veyra_proof import __version__
 from veyra_proof.command_runner import CommandRunner
-from veyra_proof.config import load_veyra_config
+from veyra_proof.config import ConfigError, load_veyra_config
 from veyra_proof.discovery import run_doctor
 from veyra_proof.hashing import compare_snapshots, snapshot_project_files
 from veyra_proof.installer import confirm_installs, execute_install_plan
@@ -23,6 +23,7 @@ from veyra_proof.reporting import (
     classify_project_changes,
     decide,
     default_evidence_dir,
+    unique_evidence_dir,
     render_markdown,
     timing_accounting,
     utc_timestamp_dir,
@@ -32,7 +33,7 @@ from veyra_proof.tool_registry import (
     required_tool_ids,
     registry_rows,
     select_tools,
-    unknown_include_ids,
+    unknown_tool_ids,
 )
 from veyra_proof.tools.base import AuditContext, utc_now_iso
 from veyra_proof.workspace import WorkspaceError, resolve_workspace
@@ -177,12 +178,30 @@ def _prepare_context(
         print(f"ERROR: {exc}", file=sys.stderr)
         return None, {}, [], {}, [], 2
 
-    config = load_veyra_config(Path(workspace.workspace_root))
+    try:
+        config = load_veyra_config(Path(workspace.workspace_root))
+    except ConfigError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return None, {}, [], {}, [], 2
     include = _parse_csv(args.include)
     exclude = _parse_csv(args.exclude)
-    unknown = unknown_include_ids(include)
-    if unknown:
-        print(f"WARNING: unknown --include tool id(s): {', '.join(unknown)}", file=sys.stderr)
+    # A typo in either flag names a check that will not run. Refusing here is the
+    # only answer that cannot be mistaken for a verdict about the workspace.
+    unknown_include = unknown_tool_ids(include)
+    unknown_exclude = unknown_tool_ids(exclude)
+    if unknown_include or unknown_exclude:
+        parts = []
+        if unknown_include:
+            parts.append("--include: " + ", ".join(unknown_include))
+        if unknown_exclude:
+            parts.append("--exclude: " + ", ".join(unknown_exclude))
+        print(
+            f"ERROR: unknown tool id(s) in {'; '.join(parts)}. "
+            "A check named by a typo would not run, so no audit was started. "
+            "Valid ids are the ones `veyra list-tools` prints.",
+            file=sys.stderr,
+        )
+        return None, {}, [], {}, [], 2
 
     tools = select_tools(
         args.profile,
@@ -194,10 +213,14 @@ def _prepare_context(
 
     timestamp = utc_timestamp_dir()
     if args.evidence_dir:
-        evidence = Path(args.evidence_dir)
-        # If user path has no timestamp leaf, still record our stamp for reports
+        # An existing directory holds another run's tool results. Writing this run's
+        # report on top of them mixed two audits in one evidence tree; the suffix
+        # keeps both, and the report says which one it is.
+        evidence = unique_evidence_dir(Path(args.evidence_dir))
     else:
-        evidence = default_evidence_dir(Path(workspace.workspace_root), timestamp)
+        evidence = unique_evidence_dir(
+            default_evidence_dir(Path(workspace.workspace_root), timestamp)
+        )
 
     if create_evidence_dir and not args.dry_run:
         evidence.mkdir(parents=True, exist_ok=True)
@@ -253,7 +276,7 @@ def _prepare_context(
         update_lockfile=bool(args.update_lockfile),
         allow_manifest_changes=bool(args.allow_manifest_changes),
         yes=bool(args.yes),
-        unknown_includes=unknown,
+        unknown_includes=[],
     )
     return ctx, plan, tools, detections, install_plans, None
 
@@ -374,6 +397,10 @@ def cmd_audit(args: argparse.Namespace) -> int:
         selected_ids=selected_ids,
         config=ctx.config,
     )
+    # Required ids that were selected away rather than lost: the reason for the
+    # verdict has to say that, or it tells a reader to install a tool that is
+    # already installed.
+    excluded_required = [tid for tid in req_ids if tid not in selected_ids]
     missing_required: list[str] = []
 
     # Ensure evidence runner is live
@@ -450,6 +477,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         required_tool_ids=req_ids,
         hash_incongruence=bool(unauthorized),
         missing_required=missing_required,
+        excluded_required=excluded_required,
     )
     if unauthorized:
         decision.reason = (

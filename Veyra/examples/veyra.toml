@@ -18,6 +18,12 @@ critical_paths = []
 # allow_manifest_changes = false   # reserved; V1 performs no manifest edits
 # anti_theater           = true    # heuristic scan for theatrical / fake code
 
+[semver]
+# Unpublished workspaces have no registry baseline. Name a Git tag to diff
+# against, and optionally the release type the change is intended to be.
+# baseline = "v0.9.1"
+# release_type = "patch"
+
 # Fuzzing is only attempted for targets that really exist. Do not invent paths:
 # a configured-but-absent target is reported as SKIPPED with that reason.
 #
