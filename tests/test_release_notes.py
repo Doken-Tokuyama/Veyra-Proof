@@ -21,6 +21,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -29,7 +31,7 @@ SCRIPT = REPO_ROOT / "scripts" / "release_notes.py"
 
 
 @pytest.fixture()
-def notes():
+def notes() -> ModuleType:
     spec = importlib.util.spec_from_file_location("release_notes", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -39,7 +41,7 @@ def notes():
 
 
 @pytest.fixture()
-def gate():
+def gate() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "pre_release_for_notes", REPO_ROOT / "scripts" / "pre_release.py"
     )
@@ -56,7 +58,9 @@ BULLET = (
 )
 
 
-def _record(gate, root: Path, *, version: str = "0.4.9", state="recorded", **facts) -> dict:
+def _record(
+    gate: ModuleType, root: Path, *, version: str = "0.4.9", state: Any = "recorded", **facts: Any
+) -> dict:
     """A gate record for this tree, with whatever facts a test wants it to carry.
 
     `state` is the release-state rows the gate records — the footer's own rows.
@@ -123,7 +127,7 @@ def _write(root: Path, record: dict) -> None:
     )
 
 
-def _full_facts(**overrides) -> dict:
+def _full_facts(**overrides: Any) -> dict:
     facts = {
         "tests": {
             "cases": 417,
@@ -196,7 +200,9 @@ def _full_facts(**overrides) -> dict:
 
 
 class TestTheNumbersComeFromTheRecord:
-    def test_the_generated_table_is_built_from_what_was_measured(self, notes, gate, tmp_path):
+    def test_the_generated_table_is_built_from_what_was_measured(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
 
@@ -223,7 +229,9 @@ class TestTheNumbersComeFromTheRecord:
         assert path == root / ".freebuff" / "release-notes-v0.4.9.md"
         assert path.is_file(), "the default path is the one the gate hands to `gh`"
 
-    def test_the_index_row_names_the_commit_the_world_installs(self, notes, gate, tmp_path):
+    def test_the_index_row_names_the_commit_the_world_installs(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """Provenance is stated when the step measured it — in the form the record holds.
 
         The short commit id is a recorded fact, not a truncation made here: a number the
@@ -246,7 +254,9 @@ class TestTheNumbersComeFromTheRecord:
         assert "built from `a29c70f12345` (the tag v0.4.9)" in body
         assert "the payload the index serves is the payload this gate checked" in body
 
-    def test_two_records_produce_two_different_reports(self, notes, gate, tmp_path):
+    def test_two_records_produce_two_different_reports(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The strongest form of the claim: change the measurement, the note changes.
 
         If any of these numbers were typed into the generator, one of the two runs
@@ -268,7 +278,9 @@ class TestTheNumbersComeFromTheRecord:
         assert "8 jobs" in first and "3 jobs" in second
         assert "**ACCEPTED**, exit 0" in first and "**REJECTED**, exit 1" in second
 
-    def test_no_digit_in_the_verification_table_is_unaccounted_for(self, notes, gate, tmp_path):
+    def test_no_digit_in_the_verification_table_is_unaccounted_for(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The claim, checked as a property rather than by example.
 
         Every number in the table has to be either recorded in the facts or a count of
@@ -306,7 +318,9 @@ class TestTheNumbersComeFromTheRecord:
             f"{sorted(found - available)}"
         )
 
-    def test_the_changelog_prose_is_not_claimed_to_be_measured(self, notes, gate, tmp_path):
+    def test_the_changelog_prose_is_not_claimed_to_be_measured(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The changelog is human text and may cite history; only the table is measured.
 
         The first version of the header said "every number below was read out of that
@@ -338,7 +352,7 @@ class TestTheNumbersComeFromTheRecord:
         assert "no row" in body.split("## Verification", 1)[1]
 
     def test_an_unpublished_version_is_not_described_as_verified(
-        self, notes, gate, tmp_path
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
     ) -> None:
         """The usual answer at tag time: publishing comes after the gate.
 
@@ -371,7 +385,7 @@ class TestTheNumbersComeFromTheRecord:
         )
 
     def test_a_published_fact_with_no_answer_is_named_not_guessed(
-        self, notes, gate, tmp_path
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
     ) -> None:
         """An empty fact is not a measurement, whatever key it is filed under."""
         root = _tree(tmp_path)
@@ -384,7 +398,9 @@ class TestTheNumbersComeFromTheRecord:
         assert "## Not measured" in body
         assert "- `published`" in body
 
-    def test_the_reproduce_note_names_the_index_refusal(self, notes, gate, tmp_path) -> None:
+    def test_the_reproduce_note_names_the_index_refusal(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """A reader has to know the index can refuse the tag, and when it does not."""
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
@@ -395,7 +411,9 @@ class TestTheNumbersComeFromTheRecord:
         assert "the index serves a payload other than the one it checked" in tail
         assert "does *not* refuse when the index has nothing" in tail
 
-    def test_a_measurement_that_is_absent_is_named_not_guessed(self, notes, gate, tmp_path):
+    def test_a_measurement_that_is_absent_is_named_not_guessed(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """No row, and no plausible number in its place."""
         root = _tree(tmp_path)
         facts = _full_facts()
@@ -415,7 +433,9 @@ class TestTheNumbersComeFromTheRecord:
         assert "ACCEPTED" not in body, "a verdict appeared with no measurement behind it"
         assert "throwaway venv" not in body, "the wheel row was written without a wheel"
 
-    def test_with_nothing_measured_it_says_so(self, notes, gate, tmp_path):
+    def test_with_nothing_measured_it_says_so(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, state=None))
 
@@ -435,7 +455,9 @@ class TestTheStateRowsAreTheFootersRows:
     and that is what recording the rows exists to make impossible.
     """
 
-    def test_the_recorded_rows_are_shown_verbatim(self, notes, gate, tmp_path):
+    def test_the_recorded_rows_are_shown_verbatim(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         record = _record(gate, root, **_full_facts())
         _write(root, record)
@@ -450,8 +472,8 @@ class TestTheStateRowsAreTheFootersRows:
                 assert line in section, f"the table reworded a recorded row: {line}"
 
     def test_the_table_row_is_the_recorded_lines_joined_and_nothing_else(
-        self, notes, gate, tmp_path
-    ):
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The generator adds a label and a `<br>` — and no words of its own."""
         root = _tree(tmp_path)
         record = _record(gate, root, **_full_facts())
@@ -463,7 +485,9 @@ class TestTheStateRowsAreTheFootersRows:
             expected = f"| `{label}` | " + "<br>".join(record["state"][label]) + " |"
             assert expected in body
 
-    def test_two_state_answers_produce_two_different_tables(self, notes, gate, tmp_path):
+    def test_two_state_answers_produce_two_different_tables(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The strongest form: change the answer, the table changes with it."""
         root = _tree(tmp_path)
         record = _record(gate, root, **_full_facts())
@@ -482,7 +506,9 @@ class TestTheStateRowsAreTheFootersRows:
         assert "already exists on GitHub" in second
         assert "no release for this tag on GitHub yet" not in second
 
-    def test_state_rows_the_gate_never_recorded_are_named_not_guessed(self, notes, gate, tmp_path):
+    def test_state_rows_the_gate_never_recorded_are_named_not_guessed(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """A record from a run that never asked has no row — and names the gap."""
         root = _tree(tmp_path)
         _write(root, _record(gate, root, state=None, **_full_facts()))
@@ -498,7 +524,9 @@ class TestTheStateRowsAreTheFootersRows:
 
 
 class TestItRefusesInsteadOfDrafting:
-    def test_a_record_for_another_tree_is_refused(self, notes, gate, tmp_path):
+    def test_a_record_for_another_tree_is_refused(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The numbers would be right and about the wrong commit."""
         root = _tree(tmp_path)
         record = _record(gate, root, **_full_facts())
@@ -512,7 +540,9 @@ class TestItRefusesInsteadOfDrafting:
         assert "run `python scripts/pre_release.py` again" in message
         assert path is None
 
-    def test_a_record_for_another_version_is_refused(self, notes, gate, tmp_path):
+    def test_a_record_for_another_version_is_refused(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, version="0.4.8", **_full_facts()))
 
@@ -521,7 +551,9 @@ class TestItRefusesInsteadOfDrafting:
         assert code == 1
         assert "0.4.8" in message and "0.4.9" in message
 
-    def test_no_record_at_all_is_refused_with_what_to_run(self, notes, gate, tmp_path):
+    def test_no_record_at_all_is_refused_with_what_to_run(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
 
         code, message, _ = notes.generate(root, "t")
@@ -530,7 +562,9 @@ class TestItRefusesInsteadOfDrafting:
         assert "no record" in message
         assert "pre_release.py" in message
 
-    def test_nothing_to_release_is_refused(self, notes, gate, tmp_path):
+    def test_nothing_to_release_is_refused(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         (root / "changes.md").write_text("## What changed in v0.4.8\n\n- old\n", encoding="utf-8")
         _write(root, _record(gate, root, **_full_facts()))
@@ -540,7 +574,9 @@ class TestItRefusesInsteadOfDrafting:
         assert code == 1
         assert "nothing to release" in message
 
-    def test_a_tree_with_nothing_committed_cannot_be_described(self, notes, tmp_path):
+    def test_a_tree_with_nothing_committed_cannot_be_described(
+        self, notes: ModuleType, tmp_path: Path
+    ) -> None:
         """No HEAD means no fingerprint, and a record nobody can tie to a tree.
 
         Misuse (exit 2) rather than a refusal the release could act on: the gate cannot
@@ -562,7 +598,9 @@ class TestItRefusesInsteadOfDrafting:
 
 
 class TestTheProseIsTheHumanPart:
-    def test_the_unreleased_bullets_are_copied_verbatim(self, notes, gate, tmp_path):
+    def test_the_unreleased_bullets_are_copied_verbatim(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """Continuation lines included: the generator reformats nothing."""
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
@@ -573,8 +611,8 @@ class TestTheProseIsTheHumanPart:
         assert "old news" not in body, "the released section is not part of this release"
 
     def test_the_release_reads_its_own_section_once_the_changelog_is_renamed(
-        self, notes, gate, tmp_path
-    ):
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """At tag time `Unreleased` is gone: the bullets carry the version heading.
 
         A tagged commit must not ship a changelog calling itself unreleased, so the
@@ -593,7 +631,9 @@ class TestTheProseIsTheHumanPart:
         assert BULLET.strip() in body
         assert "old news" not in body
 
-    def test_the_version_section_wins_over_an_empty_next_cycle_section(self, notes, gate, tmp_path):
+    def test_the_version_section_wins_over_an_empty_next_cycle_section(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The fresh `Unreleased` that follows a release cannot blank the notes out."""
         root = _tree(tmp_path)
         (root / "changes.md").write_text(
@@ -608,15 +648,17 @@ class TestTheProseIsTheHumanPart:
         assert BULLET.strip() in body
 
     def test_the_unreleased_section_is_used_while_the_work_is_in_progress(
-        self, notes, gate, tmp_path
-    ):
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """Before the rename there is no version heading, and that is the normal case."""
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
 
         assert notes.unreleased(root, "0.4.9") == [BULLET.rstrip() + "\n"]
 
-    def test_a_changelog_with_neither_section_refuses_with_both_names(self, notes, gate, tmp_path):
+    def test_a_changelog_with_neither_section_refuses_with_both_names(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         (root / "changes.md").write_text(
             "## What changed in v0.4.9\n\n## Something else\n", encoding="utf-8"
@@ -628,7 +670,9 @@ class TestTheProseIsTheHumanPart:
         assert code == 1
         assert "What changed in v0.4.9" in message and "Unreleased" in message
 
-    def test_the_title_is_the_tag_annotation(self, notes, gate, tmp_path):
+    def test_the_title_is_the_tag_annotation(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
 
@@ -637,7 +681,9 @@ class TestTheProseIsTheHumanPart:
         assert body.startswith("# v0.4.9 — the gate asks the platform")
         assert '--title "the gate asks the platform"' in body
 
-    def test_without_a_title_the_command_is_still_runnable(self, notes, gate, tmp_path):
+    def test_without_a_title_the_command_is_still_runnable(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
 
@@ -648,7 +694,9 @@ class TestTheProseIsTheHumanPart:
 
 
 class TestTheNamesMatchTheGate:
-    def test_the_wanted_steps_are_steps_the_gate_actually_has(self, notes, gate, tmp_path):
+    def test_the_wanted_steps_are_steps_the_gate_actually_has(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """The record is keyed by step name, not by the tool that wrote the report.
 
         The first version of this file looked up `check_platforms`, found nothing, and
@@ -660,7 +708,9 @@ class TestTheNamesMatchTheGate:
         assert set(notes.WANTED) <= steps, notes.WANTED
         assert all(name in steps for name in notes.WANTED)
 
-    def test_the_notes_are_run_by_the_gate_as_a_checklist_step(self, notes, gate, tmp_path):
+    def test_the_notes_are_run_by_the_gate_as_a_checklist_step(
+        self, notes: ModuleType, gate: ModuleType, tmp_path: Path
+    ) -> None:
         """Generated by the same command that gates the tag, not by a separate ritual."""
         names = [step.name for step in gate.default_steps(tmp_path)]
         notes_step = next(step for step in gate.default_steps(tmp_path) if step.name == "notes")
@@ -671,7 +721,13 @@ class TestTheNamesMatchTheGate:
 
 
 class TestTheCommandLine:
-    def test_it_writes_the_file_and_says_where(self, notes, gate, tmp_path, capsys):
+    def test_it_writes_the_file_and_says_where(
+        self,
+        notes: ModuleType,
+        gate: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
 
@@ -682,20 +738,32 @@ class TestTheCommandLine:
         assert "wrote" in out
         assert (root / ".freebuff" / "release-notes-v0.4.9.md").is_file()
 
-    def test_print_shows_the_notes(self, notes, gate, tmp_path, capsys):
+    def test_print_shows_the_notes(
+        self,
+        notes: ModuleType,
+        gate: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))
 
         assert notes.main(["--root", str(root), "--print"]) == 0
         assert "## Verification" in capsys.readouterr().out
 
-    def test_the_refusal_reaches_stderr_with_a_status(self, notes, gate, tmp_path, capsys):
+    def test_the_refusal_reaches_stderr_with_a_status(
+        self,
+        notes: ModuleType,
+        gate: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         root = _tree(tmp_path)
 
         assert notes.main(["--root", str(root)]) == 1
         assert "no record" in capsys.readouterr().err
 
-    def test_it_runs_as_a_script(self, gate, tmp_path):
+    def test_it_runs_as_a_script(self, gate: ModuleType, tmp_path: Path) -> None:
         """The gate invokes it as a subprocess, so that path is the one to check."""
         root = _tree(tmp_path)
         _write(root, _record(gate, root, **_full_facts()))

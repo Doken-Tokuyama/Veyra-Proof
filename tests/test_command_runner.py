@@ -1,10 +1,14 @@
+from typing import Any
+
+import pytest
+
 from veyra_proof.command_runner import CommandRunner
 
 
-def test_dry_run_does_not_execute(monkeypatch):
+def test_dry_run_does_not_execute(monkeypatch: pytest.MonkeyPatch) -> None:
     called = []
 
-    def fake_run(*args, **kwargs):
+    def fake_run(*args: Any, **kwargs: Any) -> None:
         called.append(True)
         raise AssertionError("subprocess.run should not be called in dry-run")
 
@@ -16,7 +20,7 @@ def test_dry_run_does_not_execute(monkeypatch):
     assert called == []
 
 
-def test_command_is_list_no_shell(monkeypatch):
+def test_command_is_list_no_shell(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = {}
 
     class Completed:
@@ -24,7 +28,7 @@ def test_command_is_list_no_shell(monkeypatch):
         stdout = "ok\n"
         stderr = ""
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd: Any, **kwargs: Any) -> Any:
         captured["cmd"] = cmd
         captured["shell"] = kwargs.get("shell")
         return Completed()
@@ -37,39 +41,41 @@ def test_command_is_list_no_shell(monkeypatch):
     assert result.exit_code == 0
 
 
-def test_stream_mode_captures_and_prints(monkeypatch, capsys):
+def test_stream_mode_captures_and_prints(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     class FakeStdout:
-        def __init__(self, lines):
+        def __init__(self, lines: Any) -> None:
             self._lines = list(lines)
             self._idx = 0
 
-        def readline(self):
+        def readline(self) -> Any:
             if self._idx < len(self._lines):
                 line = self._lines[self._idx]
                 self._idx += 1
                 return line
             return ""
 
-        def read(self):
+        def read(self) -> Any:
             return ""
 
     class FakeProc:
-        def __init__(self):
+        def __init__(self) -> None:
             self.stdout = FakeStdout(["Compiling foo\n", "Finished\n"])
             self._polled = False
 
-        def poll(self):
+        def poll(self) -> Any:
             if self.stdout._idx >= 2:
                 return 0
             return None
 
-        def wait(self, timeout=None):
+        def wait(self, timeout: Any = None) -> Any:
             return 0
 
-        def kill(self):
+        def kill(self) -> None:
             pass
 
-    def fake_popen(*args, **kwargs):
+    def fake_popen(*args: Any, **kwargs: Any) -> Any:
         assert kwargs.get("shell") is False
         assert kwargs.get("stderr") == __import__("subprocess").STDOUT
         return FakeProc()

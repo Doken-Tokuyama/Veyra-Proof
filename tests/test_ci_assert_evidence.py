@@ -13,6 +13,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -24,7 +25,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _load():
+def _load() -> ModuleType:
     spec = importlib.util.spec_from_file_location("ci_assert_evidence", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -34,7 +35,7 @@ def _load():
 
 
 @pytest.fixture(scope="module")
-def checker():
+def checker() -> ModuleType:
     return _load()
 
 
@@ -75,7 +76,7 @@ def _evidence(tmp_path: Path, *, status: str = "OK", exit_code: int | None = 0) 
     return directory
 
 
-def test_well_formed_evidence_passes(checker, tmp_path) -> None:
+def test_well_formed_evidence_passes(checker: ModuleType, tmp_path: Path) -> None:
     """A silent success with an empty log is a pass, not a defect."""
     problems, confirmed = checker.verify(_evidence(tmp_path), 0)
     assert problems == []
@@ -84,7 +85,7 @@ def test_well_formed_evidence_passes(checker, tmp_path) -> None:
 
 class TestTheMeasurement:
     def test_what_a_release_note_may_say_comes_out_of_the_artefacts(
-        self, checker, tmp_path
+        self, checker: ModuleType, tmp_path: Path
     ) -> None:
         """The gate records these facts, so they are asserted where they are read.
 
@@ -112,7 +113,9 @@ class TestTheMeasurement:
         assert facts["tools_ok"] == ["rustfmt"]
         assert facts["tools_not_ok"] == {}
 
-    def test_a_missing_manifest_costs_the_manifest_facts_only(self, checker, tmp_path) -> None:
+    def test_a_missing_manifest_costs_the_manifest_facts_only(
+        self, checker: ModuleType, tmp_path: Path
+    ) -> None:
         """An absent file is absent facts, never a plausible default."""
         directory = _evidence(tmp_path)
         (directory / "manifest.json").unlink()
@@ -129,7 +132,9 @@ class TestTheMeasurement:
         assert facts["target"] == str(target), "it falls back to the target it was given"
         assert facts["verdict"] == "ACCEPTED"
 
-    def test_the_report_names_the_tool_that_wrote_it(self, checker, tmp_path) -> None:
+    def test_the_report_names_the_tool_that_wrote_it(
+        self, checker: ModuleType, tmp_path: Path
+    ) -> None:
         """The gate keys the record by step, so each file says who measured what."""
         path = tmp_path / "reports" / "evidence.json"
 
@@ -142,7 +147,9 @@ class TestTheMeasurement:
             "facts": {"verdict": "ACCEPTED"},
         }
 
-    def test_an_unwritable_report_is_reported_not_raised(self, checker, tmp_path, capsys) -> None:
+    def test_an_unwritable_report_is_reported_not_raised(
+        self, checker: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """It costs a release-note row, not the audit that just passed."""
         blocker = tmp_path / "file"
         blocker.write_text("", encoding="utf-8")
@@ -152,7 +159,9 @@ class TestTheMeasurement:
         assert "could not write the report" in capsys.readouterr().err
 
 
-def test_a_silently_passing_tool_still_needs_its_log_on_disk(checker, tmp_path) -> None:
+def test_a_silently_passing_tool_still_needs_its_log_on_disk(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     directory = _evidence(tmp_path)
     (directory / "tools" / "rustfmt" / "stdout.log").unlink()
 
@@ -160,7 +169,9 @@ def test_a_silently_passing_tool_still_needs_its_log_on_disk(checker, tmp_path) 
     assert any("without a log on disk" in p for p in problems)
 
 
-def test_summary_contradicting_its_own_record_is_caught(checker, tmp_path) -> None:
+def test_summary_contradicting_its_own_record_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     """The core cross-check: two artifacts, one story, or it is a failure."""
     directory = _evidence(tmp_path)
     (directory / "tools" / "rustfmt" / "result.json").write_text(
@@ -172,7 +183,7 @@ def test_summary_contradicting_its_own_record_is_caught(checker, tmp_path) -> No
     assert any("its own record says" in p for p in problems)
 
 
-def test_ok_without_an_exit_code_is_caught(checker, tmp_path) -> None:
+def test_ok_without_an_exit_code_is_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path, exit_code=None)
     (directory / "tools" / "rustfmt" / "result.json").write_text(
         json.dumps({"tool_id": "rustfmt", "status": "OK", "exit_code": None}),
@@ -183,7 +194,7 @@ def test_ok_without_an_exit_code_is_caught(checker, tmp_path) -> None:
     assert any("without a recorded exit code" in p for p in problems)
 
 
-def test_a_tool_with_no_per_tool_record_is_caught(checker, tmp_path) -> None:
+def test_a_tool_with_no_per_tool_record_is_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path)
     (directory / "tools" / "rustfmt" / "result.json").unlink()
 
@@ -191,7 +202,7 @@ def test_a_tool_with_no_per_tool_record_is_caught(checker, tmp_path) -> None:
     assert any("no per-tool record" in p for p in problems)
 
 
-def test_status_outside_the_vocabulary_is_caught(checker, tmp_path) -> None:
+def test_status_outside_the_vocabulary_is_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path, status="PROBABLY_FINE")
     (directory / "tools" / "rustfmt" / "result.json").write_text(
         json.dumps({"tool_id": "rustfmt", "status": "PROBABLY_FINE", "exit_code": 0}),
@@ -202,7 +213,7 @@ def test_status_outside_the_vocabulary_is_caught(checker, tmp_path) -> None:
     assert any("outside the documented vocabulary" in p for p in problems)
 
 
-def test_skipped_tool_is_not_demanded_a_log(checker, tmp_path) -> None:
+def test_skipped_tool_is_not_demanded_a_log(checker: ModuleType, tmp_path: Path) -> None:
     """SKIPPED is an honest outcome; only OK is a claim that needs backing."""
     directory = _evidence(tmp_path, status="SKIPPED", exit_code=None)
     report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
@@ -225,7 +236,9 @@ def test_skipped_tool_is_not_demanded_a_log(checker, tmp_path) -> None:
     assert problems == []
 
 
-def test_a_required_tool_missing_from_the_report_is_caught(checker, tmp_path) -> None:
+def test_a_required_tool_missing_from_the_report_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     directory = _evidence(tmp_path)
     report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
     report["required_tool_ids"] = ["rustfmt", "clippy"]
@@ -235,14 +248,16 @@ def test_a_required_tool_missing_from_the_report_is_caught(checker, tmp_path) ->
     assert any("required tools absent" in p for p in problems)
 
 
-def test_a_report_claiming_a_different_exit_code_is_caught(checker, tmp_path) -> None:
+def test_a_report_claiming_a_different_exit_code_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     directory = _evidence(tmp_path)
 
     problems, _ = checker.verify(directory, 1)
     assert any("but the process returned 1" in p for p in problems)
 
 
-def test_missing_core_artifacts_are_caught(checker, tmp_path) -> None:
+def test_missing_core_artifacts_are_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path)
     (directory / "manifest.json").unlink()
 
@@ -251,7 +266,7 @@ def test_missing_core_artifacts_are_caught(checker, tmp_path) -> None:
     assert confirmed == []
 
 
-def test_empty_core_artifact_is_caught(checker, tmp_path) -> None:
+def test_empty_core_artifact_is_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path)
     (directory / "report.md").write_text("", encoding="utf-8")
 
@@ -305,7 +320,9 @@ def _e2e_evidence(tmp_path: Path, *, log_text: str, declared_scenarios: int) -> 
     return directory, target
 
 
-def test_an_end_to_end_run_that_observed_every_scenario_passes(checker, tmp_path) -> None:
+def test_an_end_to_end_run_that_observed_every_scenario_passes(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     log = (
         "binary: /tmp/demo (sha256=abc)\n"
         "SCENARIO name='a' argv=['add', '1', '2'] observed_exit=0 verdict=PASS\n"
@@ -319,7 +336,9 @@ def test_an_end_to_end_run_that_observed_every_scenario_passes(checker, tmp_path
     assert confirmed == ["veyra-e2e OK exit 0"]
 
 
-def test_an_end_to_end_ok_with_no_observed_scenario_is_caught(checker, tmp_path) -> None:
+def test_an_end_to_end_ok_with_no_observed_scenario_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     """The check this guards: a green claim with nothing observed behind it."""
     directory, target = _e2e_evidence(
         tmp_path, log_text="binary: /tmp/demo (sha256=abc)\n", declared_scenarios=1
@@ -330,7 +349,9 @@ def test_an_end_to_end_ok_with_no_observed_scenario_is_caught(checker, tmp_path)
     assert any("without a single observed scenario" in p for p in problems)
 
 
-def test_an_end_to_end_run_that_skipped_a_declared_scenario_is_caught(checker, tmp_path) -> None:
+def test_an_end_to_end_run_that_skipped_a_declared_scenario_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     log = "SCENARIO name='a' argv=['add'] observed_exit=0 verdict=PASS\n"
     directory, target = _e2e_evidence(tmp_path, log_text=log, declared_scenarios=3)
 
@@ -339,7 +360,9 @@ def test_an_end_to_end_run_that_skipped_a_declared_scenario_is_caught(checker, t
     assert any("observed 1 scenario(s) but veyra.toml declares 3" in p for p in problems)
 
 
-def test_an_end_to_end_scenario_line_without_an_observed_exit_is_caught(checker, tmp_path) -> None:
+def test_an_end_to_end_scenario_line_without_an_observed_exit_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     directory, target = _e2e_evidence(
         tmp_path,
         log_text="SCENARIO name='a' argv=['add'] verdict=PASS\n",
@@ -351,7 +374,9 @@ def test_an_end_to_end_scenario_line_without_an_observed_exit_is_caught(checker,
     assert any("records no observed exit code" in p for p in problems)
 
 
-def test_a_path_style_key_is_read_as_a_path_not_as_a_log_name(checker, tmp_path) -> None:
+def test_a_path_style_key_is_read_as_a_path_not_as_a_log_name(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     """A pinned binary is named by the path cargo produced — backslashes on
     Windows — so it must not be looked for inside the tool's evidence
     directory. Whether the path resolves depends on the host that reads it, but
@@ -365,7 +390,9 @@ def test_a_path_style_key_is_read_as_a_path_not_as_a_log_name(checker, tmp_path)
     assert checker.artifact_path(directory, "veyra-e2e", "stdout.log") == tool_dir / "stdout.log"
 
 
-def test_an_edited_log_is_caught_by_its_recorded_digest(checker, tmp_path) -> None:
+def test_an_edited_log_is_caught_by_its_recorded_digest(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     """The point of pinning: a log rewritten after the run cannot pass as the
     evidence the verdict was based on."""
     directory = _evidence(tmp_path)
@@ -378,7 +405,7 @@ def test_an_edited_log_is_caught_by_its_recorded_digest(checker, tmp_path) -> No
     assert any("does not match its recorded digest" in p for p in problems)
 
 
-def test_a_pinned_log_that_is_gone_is_caught(checker, tmp_path) -> None:
+def test_a_pinned_log_that_is_gone_is_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path, status="FINDINGS")
     log = directory / "tools" / "rustfmt" / "stdout.log"
     log.unlink()
@@ -388,7 +415,9 @@ def test_a_pinned_log_that_is_gone_is_caught(checker, tmp_path) -> None:
     assert any("which is not on disk" in p for p in problems)
 
 
-def test_an_ok_result_whose_log_is_not_pinned_is_caught(checker, tmp_path) -> None:
+def test_an_ok_result_whose_log_is_not_pinned_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     """A log left on disk without a digest can be swapped afterwards, so it is
     not evidence that anything can be checked against."""
     directory = _evidence(tmp_path)
@@ -401,7 +430,9 @@ def test_an_ok_result_whose_log_is_not_pinned_is_caught(checker, tmp_path) -> No
     assert any("digest was not recorded" in p for p in problems)
 
 
-def test_a_report_contradicting_its_record_about_a_digest_is_caught(checker, tmp_path) -> None:
+def test_a_report_contradicting_its_record_about_a_digest_is_caught(
+    checker: ModuleType, tmp_path: Path
+) -> None:
     directory = _evidence(tmp_path)
     record_path = directory / "tools" / "rustfmt" / "result.json"
     record = json.loads(record_path.read_text(encoding="utf-8"))
@@ -413,7 +444,7 @@ def test_a_report_contradicting_its_record_about_a_digest_is_caught(checker, tmp
     assert any("disagree about the digest" in p for p in problems)
 
 
-def test_a_report_with_no_results_is_caught(checker, tmp_path) -> None:
+def test_a_report_with_no_results_is_caught(checker: ModuleType, tmp_path: Path) -> None:
     directory = _evidence(tmp_path)
     report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
     report["results"] = []
@@ -450,7 +481,9 @@ class TestFindingsNeedOutput:
         digests["stdout.log"] = _sha256(tools / "stdout.log")
         report_path.write_text(json.dumps(report), encoding="utf-8")
 
-    def test_findings_with_every_log_empty_is_caught(self, checker, tmp_path) -> None:
+    def test_findings_with_every_log_empty_is_caught(
+        self, checker: ModuleType, tmp_path: Path
+    ) -> None:
         directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
         self._blanks_the_logs(directory)
 
@@ -458,7 +491,9 @@ class TestFindingsNeedOutput:
 
         assert any("every captured log is empty" in p for p in problems), problems
 
-    def test_error_with_every_log_empty_is_caught(self, checker, tmp_path) -> None:
+    def test_error_with_every_log_empty_is_caught(
+        self, checker: ModuleType, tmp_path: Path
+    ) -> None:
         directory = _evidence(tmp_path, status="ERROR", exit_code=101)
         self._blanks_the_logs(directory)
 
@@ -466,7 +501,9 @@ class TestFindingsNeedOutput:
 
         assert any("every captured log is empty" in p for p in problems), problems
 
-    def test_findings_with_no_captured_output_at_all_is_caught(self, checker, tmp_path) -> None:
+    def test_findings_with_no_captured_output_at_all_is_caught(
+        self, checker: ModuleType, tmp_path: Path
+    ) -> None:
         directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
         report_path = directory / "report.json"
         report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -477,7 +514,9 @@ class TestFindingsNeedOutput:
 
         assert any("without any captured output" in p for p in problems), problems
 
-    def test_findings_with_real_output_still_passes(self, checker, tmp_path) -> None:
+    def test_findings_with_real_output_still_passes(
+        self, checker: ModuleType, tmp_path: Path
+    ) -> None:
         directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
         log = directory / "tools" / "rustfmt" / "stdout.log"
         log.write_text("Diff in /w/src/lib.rs at line 1:\n", encoding="utf-8")
@@ -502,7 +541,7 @@ class TestFindingsNeedOutput:
         assert problems == [], problems
         assert any("rustfmt FINDINGS exit 1" in c for c in confirmed)
 
-    def test_a_silent_success_is_still_accepted(self, checker, tmp_path) -> None:
+    def test_a_silent_success_is_still_accepted(self, checker: ModuleType, tmp_path: Path) -> None:
         """`cargo fmt --check` on clean code prints nothing. That is not a defect."""
         directory = _evidence(tmp_path, status="OK", exit_code=0)
 

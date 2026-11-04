@@ -12,6 +12,8 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -77,12 +79,12 @@ def test_skill_document_exists() -> None:
     assert (SKILL_DIR / "reference.md").is_file()
 
 
-def test_canonical_path_matches_the_sync_script(sync) -> None:
+def test_canonical_path_matches_the_sync_script(sync: Any) -> None:
     assert sync.CANONICAL_REL == CANONICAL_REL
     assert SKILL_DIR == REPO_ROOT / CANONICAL_REL
 
 
-def test_marker_name_matches_the_sync_script(sync) -> None:
+def test_marker_name_matches_the_sync_script(sync: Any) -> None:
     """A renamed marker would orphan every copy the old name had stamped."""
     assert sync.MARKER == MARKER
 
@@ -131,7 +133,7 @@ def test_skill_stays_within_token_budget() -> None:
     )
 
 
-def test_readme_documents_every_declared_harness(sync) -> None:
+def test_readme_documents_every_declared_harness(sync: Any) -> None:
     """Each harness the sync script targets must be named in the README table."""
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     labels = {t.label for t in sync.GLOBAL_TARGETS} | {t.label for t in sync.PROJECT_TARGETS}
@@ -151,7 +153,7 @@ def test_skill_holds_no_maintainer_facing_sections() -> None:
 # --------------------------------------------------------------------------
 
 
-def _load_account():
+def _load_account() -> ModuleType:
     """Import scripts/check_account_skill.py, to read the store it inspects."""
     spec = importlib.util.spec_from_file_location("check_account_skill", ACCOUNT_SCRIPT)
     assert spec and spec.loader
@@ -161,7 +163,7 @@ def _load_account():
     return module
 
 
-def _load_sync():
+def _load_sync() -> ModuleType:
     """Import scripts/sync_skill.py, which is a script rather than a package module."""
     spec = importlib.util.spec_from_file_location("sync_skill", SYNC_SCRIPT)
     assert spec and spec.loader
@@ -198,7 +200,7 @@ needs_links = pytest.mark.skipif(
 
 
 @pytest.fixture()
-def sync(tmp_path, monkeypatch):
+def sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """The sync module, with its audit log redirected into the tmp tree."""
     module = _load_sync()
     monkeypatch.setattr(module, "LOG_PATH", tmp_path / "sync.log")
@@ -228,14 +230,14 @@ def _sandbox(tmp_path: Path) -> tuple[Path, Path, list[str]]:
     return root, home, ["--root", str(root), "--home", str(home)]
 
 
-def test_sync_targets_have_unique_paths(sync, tmp_path) -> None:
+def test_sync_targets_have_unique_paths(sync: Any, tmp_path: Path) -> None:
     root, home, _ = _sandbox(tmp_path)
     targets = sync.select_targets(root=root, home=home, include_project=True, include_absent=True)
     resolved = [t.resolve(root, home).resolve() for t in targets]
     assert len(resolved) == len(set(resolved)), "two targets resolve to the same path"
 
 
-def test_sync_never_targets_the_canonical_copy(sync, tmp_path) -> None:
+def test_sync_never_targets_the_canonical_copy(sync: Any, tmp_path: Path) -> None:
     root, home, _ = _sandbox(tmp_path)
     _seed_skill(root)
     targets = sync.select_targets(root=root, home=home, include_project=True, include_absent=True)
@@ -244,7 +246,7 @@ def test_sync_never_targets_the_canonical_copy(sync, tmp_path) -> None:
     assert canonical not in resolved
 
 
-def test_sync_skips_absent_harnesses_unless_forced(sync, tmp_path) -> None:
+def test_sync_skips_absent_harnesses_unless_forced(sync: Any, tmp_path: Path) -> None:
     root, home, _ = _sandbox(tmp_path)
     (home / ".cursor").mkdir()
     (home / ".claude").mkdir()
@@ -257,7 +259,7 @@ def test_sync_skips_absent_harnesses_unless_forced(sync, tmp_path) -> None:
     assert len(forced) > len(detected)
 
 
-def test_check_mode_reports_drift_then_succeeds_after_sync(sync, tmp_path) -> None:
+def test_check_mode_reports_drift_then_succeeds_after_sync(sync: Any, tmp_path: Path) -> None:
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
     (home / ".cursor").mkdir()
@@ -267,7 +269,9 @@ def test_check_mode_reports_drift_then_succeeds_after_sync(sync, tmp_path) -> No
     assert sync.main(argv + ["--check"]) == 0, "check must pass once the copy matches"
 
 
-def test_check_reports_vacuous_success_honestly(sync, tmp_path, capsys) -> None:
+def test_check_reports_vacuous_success_honestly(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """With no harness installed, --check must not claim 'all targets in sync'."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -278,7 +282,9 @@ def test_check_reports_vacuous_success_honestly(sync, tmp_path, capsys) -> None:
     assert "no installed harness detected" in out
 
 
-def test_check_says_which_copy_it_reports_and_who_owns_it(sync, tmp_path, capsys) -> None:
+def test_check_says_which_copy_it_reports_and_who_owns_it(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Four copies of this skill can be on a machine; the report has to place itself.
 
     A reader who finds a copy and runs the check should not need SKILL-COPIES.md to
@@ -296,7 +302,9 @@ def test_check_says_which_copy_it_reports_and_who_owns_it(sync, tmp_path, capsys
     assert "the copy you edit" in out
 
 
-def test_check_names_the_copies_it_does_not_report(sync, tmp_path, capsys) -> None:
+def test_check_names_the_copies_it_does_not_report(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Staying silent about the other copies reads as 'and those are fine too'."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -313,12 +321,14 @@ def test_check_names_the_copies_it_does_not_report(sync, tmp_path, capsys) -> No
     assert "byte-identical" in out
 
 
-def test_the_two_scripts_name_the_same_account_store(sync) -> None:
+def test_the_two_scripts_name_the_same_account_store(sync: Any) -> None:
     """The report's pointer to the account check must point at the real store."""
     assert _load_account().DEFAULT_STORE_REL == sync.ACCOUNT_STORE_REL
 
 
-def test_the_legend_prints_even_with_no_harness_detected(sync, tmp_path, capsys) -> None:
+def test_the_legend_prints_even_with_no_harness_detected(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The run with nothing to report is the one where a reader needs the map."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -330,7 +340,9 @@ def test_the_legend_prints_even_with_no_harness_detected(sync, tmp_path, capsys)
     assert "Cloud account copy" in out
 
 
-def test_the_write_path_names_the_same_copies(sync, tmp_path, capsys) -> None:
+def test_the_write_path_names_the_same_copies(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """One report, one frame: the legend is not a --check-only decoration."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -342,7 +354,7 @@ def test_the_write_path_names_the_same_copies(sync, tmp_path, capsys) -> None:
     assert "not owned or reported here" in out
 
 
-def test_the_report_and_the_guide_name_the_same_owners(sync) -> None:
+def test_the_report_and_the_guide_name_the_same_owners(sync: Any) -> None:
     """The output and SKILL-COPIES.md may not tell the reader different stories."""
     guide = COPIES_GUIDE.read_text(encoding="utf-8")
     assert sync.ACCOUNT_STORE_REL.as_posix() in guide
@@ -351,7 +363,7 @@ def test_the_report_and_the_guide_name_the_same_owners(sync) -> None:
 
 
 @needs_links
-def test_an_edit_is_live_in_every_harness_without_a_sync(sync, tmp_path) -> None:
+def test_an_edit_is_live_in_every_harness_without_a_sync(sync: Any, tmp_path: Path) -> None:
     """The property the links buy, and the reason the old drift test is gone.
 
     This used to write an edit into canonical, watch `--check` fail, and then run
@@ -380,7 +392,7 @@ def test_an_edit_is_live_in_every_harness_without_a_sync(sync, tmp_path) -> None
         assert (target / "reference.md").is_file()
 
 
-def test_copy_mode_still_detects_drift_and_repairs_it(sync, tmp_path) -> None:
+def test_copy_mode_still_detects_drift_and_repairs_it(sync: Any, tmp_path: Path) -> None:
     """The fallback keeps the old contract, because a copy can still go stale."""
     root, home, argv = _sandbox(tmp_path)
     canonical = _seed_skill(root)
@@ -399,7 +411,7 @@ def test_copy_mode_still_detects_drift_and_repairs_it(sync, tmp_path) -> None:
 
 @needs_links
 def test_a_copy_installed_with_copy_mode_is_accepted_by_the_default_check(
-    sync, tmp_path, capsys
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A machine that chose copies must not be reported as broken forever.
 
@@ -421,7 +433,7 @@ def test_a_copy_installed_with_copy_mode_is_accepted_by_the_default_check(
 
 
 @needs_links
-def test_a_matching_copy_without_a_marker_is_converted_to_a_link(sync, tmp_path) -> None:
+def test_a_matching_copy_without_a_marker_is_converted_to_a_link(sync: Any, tmp_path: Path) -> None:
     """A copy nobody declared is a duplicate, whatever it was meant to be."""
     root, home, argv = _sandbox(tmp_path)
     canonical = _seed_skill(root)
@@ -437,7 +449,9 @@ def test_a_matching_copy_without_a_marker_is_converted_to_a_link(sync, tmp_path)
     assert target.is_symlink()
 
 
-def test_an_unmanaged_directory_holding_foreign_files_is_left_alone(sync, tmp_path, capsys) -> None:
+def test_an_unmanaged_directory_holding_foreign_files_is_left_alone(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The guard that keeps the link mode from deleting somebody's work.
 
     A directory at the target holding a file this skill does not ship is not a
@@ -460,7 +474,7 @@ def test_an_unmanaged_directory_holding_foreign_files_is_left_alone(sync, tmp_pa
     assert "this skill does not have" in capsys.readouterr().out
 
 
-def test_a_plain_file_at_a_target_is_left_alone(sync, tmp_path) -> None:
+def test_a_plain_file_at_a_target_is_left_alone(sync: Any, tmp_path: Path) -> None:
     """Not a directory, not a link: the script has no business guessing."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -475,7 +489,9 @@ def test_a_plain_file_at_a_target_is_left_alone(sync, tmp_path) -> None:
 
 
 @needs_links
-def test_a_link_pointing_somewhere_else_is_relinked(sync, tmp_path, capsys) -> None:
+def test_a_link_pointing_somewhere_else_is_relinked(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Somebody's working copy is not this checkout, and the note says which is which."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -498,7 +514,9 @@ def test_a_link_pointing_somewhere_else_is_relinked(sync, tmp_path, capsys) -> N
 
 
 @needs_links
-def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(sync, tmp_path, capsys) -> None:
+def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The honest cost of a link: it is only as durable as the checkout it names.
 
     Moving or deleting the checkout leaves every harness target dangling. That is
@@ -524,7 +542,9 @@ def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(sync, tmp_path, c
 
 
 @needs_links
-def test_the_windows_spelling_of_a_link_target_is_recognised(sync, tmp_path, monkeypatch) -> None:
+def test_the_windows_spelling_of_a_link_target_is_recognised(
+    sync: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Windows records an absolute link target with the extended-length prefix.
 
     A link made to ``C:\\repo\\...`` reads back from ``os.readlink`` as
@@ -544,7 +564,7 @@ def test_the_windows_spelling_of_a_link_target_is_recognised(sync, tmp_path, mon
 
     recorded = os.readlink
 
-    def as_windows_records_it(path):
+    def as_windows_records_it(path: Path) -> Any:
         target = recorded(path)
         # Only the links of this sandbox: the wrapper is standing in for a platform
         # behaviour, not for every readlink in the process.
@@ -567,7 +587,7 @@ def test_the_windows_spelling_of_a_link_target_is_recognised(sync, tmp_path, mon
 
 
 def test_a_machine_without_symlinks_falls_back_to_a_copy_and_says_so(
-    sync, tmp_path, monkeypatch
+    sync: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Windows without Developer Mode is a real machine, not an error case.
 
@@ -588,7 +608,9 @@ def test_a_machine_without_symlinks_falls_back_to_a_copy_and_says_so(
     assert (target / "SKILL.md").is_file()
 
 
-def test_the_report_names_the_mode_it_is_working_in(sync, tmp_path, capsys) -> None:
+def test_the_report_names_the_mode_it_is_working_in(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Link or copy is the first thing a reader needs to know about a run."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -600,7 +622,7 @@ def test_the_report_names_the_mode_it_is_working_in(sync, tmp_path, capsys) -> N
     assert "mode       copy" in capsys.readouterr().out
 
 
-def test_sync_never_touches_the_real_home(sync, tmp_path) -> None:
+def test_sync_never_touches_the_real_home(sync: Any, tmp_path: Path) -> None:
     """Regression guard: a sandboxed run must not reach the user's real home."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -613,7 +635,7 @@ def test_sync_never_touches_the_real_home(sync, tmp_path) -> None:
     assert sync.LOG_PATH.resolve().is_relative_to(tmp_path.resolve())
 
 
-def test_write_atomic_leaves_no_temp_file(sync, tmp_path) -> None:
+def test_write_atomic_leaves_no_temp_file(sync: Any, tmp_path: Path) -> None:
     destination = tmp_path / "nested" / "SKILL.md"
     sync.write_atomic(destination, b"payload")
     assert destination.read_bytes() == b"payload"
@@ -635,7 +657,7 @@ def _stamped_copy(parent: Path, name: str, skill_name: str) -> Path:
 
 
 @needs_links
-def test_a_synced_target_is_a_link_and_stamps_nothing(sync, tmp_path) -> None:
+def test_a_synced_target_is_a_link_and_stamps_nothing(sync: Any, tmp_path: Path) -> None:
     """A link needs no ownership stamp, and must not write one where it would land.
 
     ``<target>/.veyra-skill-sync`` inside a linked target resolves to the *repo's*
@@ -656,7 +678,7 @@ def test_a_synced_target_is_a_link_and_stamps_nothing(sync, tmp_path) -> None:
     )
 
 
-def test_copy_mode_stamps_a_healthy_copy_that_lost_its_marker(sync, tmp_path) -> None:
+def test_copy_mode_stamps_a_healthy_copy_that_lost_its_marker(sync: Any, tmp_path: Path) -> None:
     """Unstamped copies are unprunable, so copy mode still backfills the stamp."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -677,7 +699,9 @@ def test_copy_mode_stamps_a_healthy_copy_that_lost_its_marker(sync, tmp_path) ->
 
 
 @needs_links
-def test_a_copy_stamped_by_the_older_script_is_converted_not_accepted(sync, tmp_path) -> None:
+def test_a_copy_stamped_by_the_older_script_is_converted_not_accepted(
+    sync: Any, tmp_path: Path
+) -> None:
     """The migration this change needs, and the reason the stamp got a second line.
 
     Every machine already carrying a stamped copy has a directory that proves it is
@@ -703,7 +727,7 @@ def test_a_copy_stamped_by_the_older_script_is_converted_not_accepted(sync, tmp_
     assert target.is_symlink()
 
 
-def test_check_writes_nothing_at_all(sync, tmp_path) -> None:
+def test_check_writes_nothing_at_all(sync: Any, tmp_path: Path) -> None:
     """--check promises to change nothing; a hidden write would break that."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -715,7 +739,9 @@ def test_check_writes_nothing_at_all(sync, tmp_path) -> None:
     assert not (target / sync.MARKER).exists()
 
 
-def test_rename_leaves_a_target_that_only_prune_can_see(sync, tmp_path, monkeypatch) -> None:
+def test_rename_leaves_a_target_that_only_prune_can_see(
+    sync: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The regression this mode exists for.
 
     After a rename, --check is perfectly happy: the new name is installed and
@@ -739,7 +765,7 @@ def test_rename_leaves_a_target_that_only_prune_can_see(sync, tmp_path, monkeypa
 
 
 @needs_links
-def test_prune_finds_a_link_left_dangling_by_a_rename(sync, tmp_path) -> None:
+def test_prune_finds_a_link_left_dangling_by_a_rename(sync: Any, tmp_path: Path) -> None:
     """The realistic rename moves the canonical directory too, which kills the link.
 
     A dead link is not ``is_dir()``, so the existence test has to accept a link as
@@ -765,7 +791,9 @@ def test_prune_finds_a_link_left_dangling_by_a_rename(sync, tmp_path) -> None:
     assert (home / ".cursor" / "skills" / "veyra-next" / "SKILL.md").is_file()
 
 
-def test_prune_is_a_dry_run_by_default(sync, tmp_path, capsys) -> None:
+def test_prune_is_a_dry_run_by_default(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
     (home / ".cursor").mkdir()
@@ -780,7 +808,7 @@ def test_prune_is_a_dry_run_by_default(sync, tmp_path, capsys) -> None:
     assert "--prune --apply" in out
 
 
-def test_prune_apply_removes_only_our_own_copies(sync, tmp_path) -> None:
+def test_prune_apply_removes_only_our_own_copies(sync: Any, tmp_path: Path) -> None:
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
     (home / ".cursor").mkdir()
@@ -796,7 +824,7 @@ def test_prune_apply_removes_only_our_own_copies(sync, tmp_path) -> None:
     assert (current / "SKILL.md").is_file()
 
 
-def test_prune_leaves_foreign_skills_untouched(sync, tmp_path) -> None:
+def test_prune_leaves_foreign_skills_untouched(sync: Any, tmp_path: Path) -> None:
     """The harness skills directory is shared with every other skill the user has."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -815,7 +843,7 @@ def test_prune_leaves_foreign_skills_untouched(sync, tmp_path) -> None:
     assert (someone_elses / "SKILL.md").read_text(encoding="utf-8") == "theirs\n"
 
 
-def test_prune_never_removes_the_canonical_copy(sync, tmp_path) -> None:
+def test_prune_never_removes_the_canonical_copy(sync: Any, tmp_path: Path) -> None:
     """The source of truth is not litter, however it is named."""
     root, home, argv = _sandbox(tmp_path)
     canonical = _seed_skill(root)
@@ -825,7 +853,9 @@ def test_prune_never_removes_the_canonical_copy(sync, tmp_path) -> None:
     assert (canonical / "SKILL.md").is_file()
 
 
-def test_prune_on_a_clean_install_finds_nothing(sync, tmp_path, capsys) -> None:
+def test_prune_on_a_clean_install_finds_nothing(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
     (home / ".cursor").mkdir()
@@ -835,7 +865,7 @@ def test_prune_on_a_clean_install_finds_nothing(sync, tmp_path, capsys) -> None:
     assert "no managed copy left behind" in capsys.readouterr().out
 
 
-def test_installing_a_link_is_recorded_in_the_audit_log(sync, tmp_path) -> None:
+def test_installing_a_link_is_recorded_in_the_audit_log(sync: Any, tmp_path: Path) -> None:
     """The log is the record of what this script did to a shared directory."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -847,7 +877,7 @@ def test_installing_a_link_is_recorded_in_the_audit_log(sync, tmp_path) -> None:
     assert "link" in log
 
 
-def test_prune_is_recorded_in_the_audit_log(sync, tmp_path) -> None:
+def test_prune_is_recorded_in_the_audit_log(sync: Any, tmp_path: Path) -> None:
     """A deletion is the one action here that cannot be undone by re-running."""
     root, home, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -861,7 +891,9 @@ def test_prune_is_recorded_in_the_audit_log(sync, tmp_path) -> None:
     assert "veyra-old" in log
 
 
-def test_apply_without_prune_is_refused(sync, tmp_path, capsys) -> None:
+def test_apply_without_prune_is_refused(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """--apply alone is ambiguous; make the user name the operation."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -870,7 +902,9 @@ def test_apply_without_prune_is_refused(sync, tmp_path, capsys) -> None:
     assert "--prune" in capsys.readouterr().err
 
 
-def test_check_and_apply_together_are_refused(sync, tmp_path, capsys) -> None:
+def test_check_and_apply_together_are_refused(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """--check writes nothing, so honouring --apply would be a lie."""
     root, _, argv = _sandbox(tmp_path)
     _seed_skill(root)
@@ -922,7 +956,7 @@ def test_published_installer_agrees_with_the_readme() -> None:
     assert not missing, f"harnesses missing from the Veyra README table: {missing}"
 
 
-def test_both_installers_declare_the_same_harnesses(sync) -> None:
+def test_both_installers_declare_the_same_harnesses(sync: Any) -> None:
     """A contributor's fan-out must reach everything the public installer reaches.
 
     The two tools live in different repositories once Veyra/ is published, so the
@@ -951,7 +985,9 @@ def test_published_installer_is_valid_python() -> None:
     py_compile.compile(str(PUBLISH_INSTALLER), doraise=True)
 
 
-def test_published_installer_detects_harnesses(sync, tmp_path, capsys) -> None:
+def test_published_installer_detects_harnesses(
+    sync: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Smoke-test the public installer against a fake home, writing into tmp only."""
     import importlib.util
 

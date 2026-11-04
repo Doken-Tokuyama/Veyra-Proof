@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -30,7 +31,7 @@ needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not i
 
 
 @pytest.fixture()
-def gate():
+def gate() -> Any:
     spec = importlib.util.spec_from_file_location("pre_release", GATE)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -39,7 +40,7 @@ def gate():
     return module
 
 
-def _passing(name: str, marker: str = "fine"):
+def _passing(name: str, marker: str = "fine") -> Any:
     """A step that succeeds, cheaply."""
     return lambda gate: gate.Step(
         name,
@@ -48,7 +49,7 @@ def _passing(name: str, marker: str = "fine"):
     )
 
 
-def _failing(name: str, code: int = 3):
+def _failing(name: str, code: int = 3) -> Any:
     """A step that fails with a distinguishable status."""
     return lambda gate: gate.Step(
         name,
@@ -57,7 +58,7 @@ def _failing(name: str, code: int = 3):
     )
 
 
-def _counting(name: str, counter: Path, code: int = 0):
+def _counting(name: str, counter: Path, code: int = 0) -> Any:
     """A step that appends to ``counter``, so a second run is visible as a count."""
     body = f"open(r'{counter}', 'a', encoding='utf-8').write('x'); raise SystemExit({code})"
     return lambda gate: gate.Step(name, "why", (lambda: [sys.executable, "-c", body],))
@@ -68,7 +69,7 @@ def _runs(counter: Path) -> int:
     return counter.read_text(encoding="utf-8").count("x") if counter.exists() else 0
 
 
-def _build(gate, *factories):
+def _build(gate: Any, *factories: Any) -> Any:
     return [factory(gate) for factory in factories]
 
 
@@ -132,14 +133,18 @@ def _tag_subject(root: Path, name: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def test_a_clean_checklist_passes(gate, released, capsys) -> None:
+def test_a_clean_checklist_passes(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(["--root", str(released)], steps=_build(gate, _passing("tests")))
 
     assert code == 0
     assert "PASS  all 1 step(s) passed" in capsys.readouterr().out
 
 
-def test_a_failing_step_refuses_the_release(gate, released, capsys) -> None:
+def test_a_failing_step_refuses_the_release(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(
         ["--root", str(released)], steps=_build(gate, _passing("tests"), _failing("build"))
     )
@@ -150,7 +155,9 @@ def test_a_failing_step_refuses_the_release(gate, released, capsys) -> None:
     assert "build" in out
 
 
-def test_every_step_runs_so_one_pass_does_not_hide_two_problems(gate, released, capsys) -> None:
+def test_every_step_runs_so_one_pass_does_not_hide_two_problems(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A checklist that stops at the first failure makes you release in stages."""
     code = gate.main(
         ["--root", str(released)],
@@ -163,7 +170,9 @@ def test_every_step_runs_so_one_pass_does_not_hide_two_problems(gate, released, 
     assert "copies" in out and "build" in out
 
 
-def test_a_step_stops_at_its_first_failing_command(gate, released, capsys) -> None:
+def test_a_step_stops_at_its_first_failing_command(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`twine check` on artefacts a failed build never wrote is noise, not evidence."""
     two_commands = gate.Step(
         "build",
@@ -181,7 +190,9 @@ def test_a_step_stops_at_its_first_failing_command(gate, released, capsys) -> No
     assert "twine-ran" not in out, "the second command ran after the first failed"
 
 
-def test_a_later_argv_is_built_after_the_earlier_command_ran(gate, tmp_path, capsys) -> None:
+def test_a_later_argv_is_built_after_the_earlier_command_ran(
+    gate: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The bug this shape replaced.
 
     Building every argv up front made `twine check` validate whatever the previous
@@ -218,7 +229,9 @@ def test_a_later_argv_is_built_after_the_earlier_command_ran(gate, tmp_path, cap
     )
 
 
-def test_skipping_a_step_is_reported_as_not_run(gate, released, capsys) -> None:
+def test_skipping_a_step_is_reported_as_not_run(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(
         ["--root", str(released), "--skip", "evidence"],
         steps=_build(gate, _passing("tests", "ran-tests"), _passing("evidence", "ran-evidence")),
@@ -231,7 +244,9 @@ def test_skipping_a_step_is_reported_as_not_run(gate, released, capsys) -> None:
     assert "ran-tests" in out
 
 
-def test_an_unknown_skip_name_is_misuse(gate, released, capsys) -> None:
+def test_an_unknown_skip_name_is_misuse(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(
         ["--root", str(released), "--skip", "nope"], steps=_build(gate, _passing("tests"))
     )
@@ -247,7 +262,7 @@ def test_an_unknown_skip_name_is_misuse(gate, released, capsys) -> None:
 
 @needs_git
 @needs_git
-def test_a_wheel_that_misnames_itself_blocks_the_tag(gate, released) -> None:
+def test_a_wheel_that_misnames_itself_blocks_the_tag(gate: Any, released: Path) -> None:
     """The new step has to be a gate, not a report.
 
     It is injected rather than run so the test stays in milliseconds, but the
@@ -263,7 +278,9 @@ def test_a_wheel_that_misnames_itself_blocks_the_tag(gate, released) -> None:
     assert _tags(released) == "", "a tag was created although the wheel disagreed with itself"
 
 
-def test_skip_cannot_be_used_to_tag(gate, released, capsys) -> None:
+def test_skip_cannot_be_used_to_tag(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The whole point: a partial checklist must not be able to cut a release."""
     code = gate.main(
         ["--root", str(released), "--skip", "evidence", "--tag", "v0.4.2"],
@@ -275,7 +292,9 @@ def test_skip_cannot_be_used_to_tag(gate, released, capsys) -> None:
 
 
 @needs_git
-def test_a_tag_needs_a_passing_checklist(gate, released, capsys) -> None:
+def test_a_tag_needs_a_passing_checklist(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(
         ["--root", str(released), "--tag", "v0.4.2"],
         steps=_build(gate, _passing("tests"), _failing("copies")),
@@ -288,7 +307,9 @@ def test_a_tag_needs_a_passing_checklist(gate, released, capsys) -> None:
 
 
 @needs_git
-def test_a_tag_must_name_the_declared_version(gate, released, capsys) -> None:
+def test_a_tag_must_name_the_declared_version(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(
         ["--root", str(released), "--tag", "v9.9.9"], steps=_build(gate, _passing("tests"))
     )
@@ -300,7 +321,9 @@ def test_a_tag_must_name_the_declared_version(gate, released, capsys) -> None:
 
 
 @needs_git
-def test_a_tag_is_refused_while_the_skill_is_uncommitted(gate, released, capsys) -> None:
+def test_a_tag_is_refused_while_the_skill_is_uncommitted(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The sdist is built from the tagged commit, not from this working tree.
 
     Copies that all agree locally still say nothing about what ships if the
@@ -322,7 +345,9 @@ def test_a_tag_is_refused_while_the_skill_is_uncommitted(gate, released, capsys)
 
 
 @needs_git
-def test_a_tag_is_refused_when_git_does_not_track_the_skill(gate, tmp_path: Path, capsys) -> None:
+def test_a_tag_is_refused_when_git_does_not_track_the_skill(
+    gate: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The trap: `git status` hides ignored paths, so a clean report proves nothing.
 
     A skill file matched by an ignore rule reads as clean while git would never
@@ -368,7 +393,9 @@ def test_a_tag_is_refused_when_git_does_not_track_the_skill(gate, tmp_path: Path
 
 
 @needs_git
-def test_an_existing_tag_is_refused(gate, released, capsys) -> None:
+def test_an_existing_tag_is_refused(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     subprocess.run(["git", "tag", "v0.4.2"], cwd=released, check=True, capture_output=True)
 
     code = gate.main(
@@ -381,7 +408,9 @@ def test_an_existing_tag_is_refused(gate, released, capsys) -> None:
 
 
 @needs_git
-def test_a_tag_is_created_when_everything_passes(gate, released, capsys) -> None:
+def test_a_tag_is_created_when_everything_passes(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = gate.main(
         ["--root", str(released), "--tag", "v0.4.2"], steps=_build(gate, _passing("tests"))
     )
@@ -392,7 +421,7 @@ def test_a_tag_is_created_when_everything_passes(gate, released, capsys) -> None
 
 
 @needs_git
-def test_the_tracked_check_names_files_the_way_git_prints_them(gate, released) -> None:
+def test_the_tracked_check_names_files_the_way_git_prints_them(gate: Any, released: Path) -> None:
     """`git ls-files` prints forward slashes on every OS; `str(Path)` does not.
 
     Comparing the two made every tracked skill file look untracked on Windows, so
@@ -408,7 +437,7 @@ def test_the_tracked_check_names_files_the_way_git_prints_them(gate, released) -
 
 
 @needs_git
-def test_the_gate_creates_the_annotated_tag_the_history_uses(gate, released) -> None:
+def test_the_gate_creates_the_annotated_tag_the_history_uses(gate: Any, released: Path) -> None:
     """Every existing tag reads `vX.Y.Z — <headline>`; a lightweight one would not.
 
     `git tag NAME` alone makes a lightweight tag: the one tag in the history that
@@ -427,7 +456,7 @@ def test_the_gate_creates_the_annotated_tag_the_history_uses(gate, released) -> 
 
 
 @needs_git
-def test_a_tag_without_a_title_is_annotated_all_the_same(gate, released) -> None:
+def test_a_tag_without_a_title_is_annotated_all_the_same(gate: Any, released: Path) -> None:
     """Omitting the headline must not quietly fall back to a lightweight tag."""
     code = gate.main(
         ["--root", str(released), "--tag", "v0.4.2"], steps=_build(gate, _passing("tests"))
@@ -439,7 +468,9 @@ def test_a_tag_without_a_title_is_annotated_all_the_same(gate, released) -> None
 
 
 @needs_git
-def test_a_tag_whose_annotation_git_rewrites_is_removed(gate, released, capsys) -> None:
+def test_a_tag_whose_annotation_git_rewrites_is_removed(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The annotation is the release name GitHub shows, so a mangled one is a defect.
 
     Git cleans up a message it is given (trailing whitespace here), which is the
@@ -459,7 +490,9 @@ def test_a_tag_whose_annotation_git_rewrites_is_removed(gate, released, capsys) 
 
 
 @needs_git
-def test_a_title_without_a_tag_reaches_the_notes(gate, released, capsys) -> None:
+def test_a_title_without_a_tag_reaches_the_notes(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A headline used to need `--tag` because it did nothing on its own.
 
     It does something now: the notes step carries it, and the notes are written on
@@ -486,13 +519,13 @@ def test_a_title_without_a_tag_reaches_the_notes(gate, released, capsys) -> None
 # --------------------------------------------------------------------------
 
 
-def _run(gate, root: Path, steps, *extra: str) -> int:
+def _run(gate: Any, root: Path, steps: Any, *extra: str) -> int:
     return gate.main(["--root", str(root), *extra], steps=steps)
 
 
 @needs_git
 def test_a_second_run_resumes_what_this_tree_already_verified(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The release is the point, not the checklist: half a minute becomes nothing.
 
@@ -516,7 +549,7 @@ def test_a_second_run_resumes_what_this_tree_already_verified(
     assert "verified on this exact tree" in out
 
 
-def test_only_passes_are_recorded(gate, released, tmp_path) -> None:
+def test_only_passes_are_recorded(gate: Any, released: Path, tmp_path: Path) -> None:
     """A failure has no representation in the ledger, so it cannot be inherited."""
     counter = tmp_path / "runs.txt"
     steps = _build(gate, _counting("tests", counter, code=3))
@@ -532,7 +565,7 @@ def test_only_passes_are_recorded(gate, released, tmp_path) -> None:
 
 
 @needs_git
-def test_a_changed_tree_invalidates_every_record(gate, released, tmp_path) -> None:
+def test_a_changed_tree_invalidates_every_record(gate: Any, released: Path, tmp_path: Path) -> None:
     """A cache tied to a tree is the only kind worth having — names *and* bytes.
 
     The two shapes of change fail differently: a new file changes the list of names,
@@ -553,7 +586,9 @@ def test_a_changed_tree_invalidates_every_record(gate, released, tmp_path) -> No
     assert _runs(counter) == 3, "an edit to a file left the record standing"
 
 
-def test_a_ledger_from_another_version_is_ignored(gate, released, tmp_path) -> None:
+def test_a_ledger_from_another_version_is_ignored(
+    gate: Any, released: Path, tmp_path: Path
+) -> None:
     """Records are scoped to the release they were made for."""
     counter = tmp_path / "runs.txt"
     steps = _build(gate, _counting("tests", counter))
@@ -570,7 +605,7 @@ def test_a_ledger_from_another_version_is_ignored(gate, released, tmp_path) -> N
     assert _runs(counter) == 1
 
 
-def test_an_unreadable_ledger_is_not_trusted(gate, released, tmp_path) -> None:
+def test_an_unreadable_ledger_is_not_trusted(gate: Any, released: Path, tmp_path: Path) -> None:
     """A cache that cannot be read is not a cache; the steps run again."""
     counter = tmp_path / "runs.txt"
     steps = _build(gate, _counting("tests", counter))
@@ -580,7 +615,9 @@ def test_an_unreadable_ledger_is_not_trusted(gate, released, tmp_path) -> None:
     assert _runs(counter) == 1
 
 
-def test_the_ledger_stays_out_of_the_working_tree(gate, released, tmp_path) -> None:
+def test_the_ledger_stays_out_of_the_working_tree(
+    gate: Any, released: Path, tmp_path: Path
+) -> None:
     """It is the checkout's own note, not part of what gets released."""
     state = gate.default_state(released)
     assert state.parent.name == ".git", "the ledger must not sit where it could be committed"
@@ -594,7 +631,9 @@ def test_the_ledger_stays_out_of_the_working_tree(gate, released, tmp_path) -> N
     assert status.stdout.strip() == "", f"the ledger is visible to git: {status.stdout!r}"
 
 
-def test_the_record_is_pinned_to_the_tree_it_verified(gate, released, tmp_path) -> None:
+def test_the_record_is_pinned_to_the_tree_it_verified(
+    gate: Any, released: Path, tmp_path: Path
+) -> None:
     steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
     assert _run(gate, released, steps) == 0
 
@@ -605,7 +644,7 @@ def test_the_record_is_pinned_to_the_tree_it_verified(gate, released, tmp_path) 
 
 
 @needs_git
-def test_the_gate_runs_from_a_linked_worktree(gate, released, tmp_path) -> None:
+def test_the_gate_runs_from_a_linked_worktree(gate: Any, released: Path, tmp_path: Path) -> None:
     """Preparing a release from a worktree is normal; crashing there is not.
 
     In a linked worktree `.git` is a *file* pointing at the checkout's real git
@@ -638,7 +677,7 @@ def test_the_gate_runs_from_a_linked_worktree(gate, released, tmp_path) -> None:
 
 
 def test_a_ledger_that_cannot_be_written_does_not_end_the_run(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A cache write may cost a resume; it may not cost the release.
 
@@ -666,7 +705,7 @@ def test_a_ledger_that_cannot_be_written_does_not_end_the_run(
 
 @needs_git
 def test_a_rerun_after_the_tag_does_not_replay_the_checklist(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The interruption this exists for: the tag was cut, the release was not published.
 
@@ -691,7 +730,7 @@ def test_a_rerun_after_the_tag_does_not_replay_the_checklist(
 
 
 def test_the_gate_says_what_is_left_and_what_it_will_not_do(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """It stops at the tag on purpose; the remaining commands are spelled out."""
     steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
@@ -711,7 +750,7 @@ def test_the_gate_says_what_is_left_and_what_it_will_not_do(
 
 
 def test_the_remaining_report_names_the_notes_file_it_can_see(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """When the release body exists, the command to publish it is copy-pasteable."""
     (released / ".freebuff").mkdir()
@@ -761,7 +800,9 @@ def _bare_origin(released: Path, tmp_path: Path) -> Path:
 
 
 @needs_git
-def test_a_tag_that_went_up_is_reported_as_pushed(gate, released, tmp_path, capsys) -> None:
+def test_a_tag_that_went_up_is_reported_as_pushed(
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """After a real `git push`, the footer must stop asking for one.
 
     The defect this replaces: a footer that reads local refs cannot tell a tag that
@@ -789,7 +830,7 @@ def test_a_tag_that_went_up_is_reported_as_pushed(gate, released, tmp_path, caps
 
 @needs_git
 def test_a_tag_only_this_clone_has_is_reported_as_unpushed(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The other half: same report, tag local-only, so the push command is what is left."""
     _bare_origin(released, tmp_path)
@@ -805,7 +846,7 @@ def test_a_tag_only_this_clone_has_is_reported_as_unpushed(
 
 @needs_git
 def test_a_different_tag_on_origin_refuses_the_tag_instead_of_cutting_it(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Origin holds a v0.4.2 this gate did not make: same commit, another annotation.
 
@@ -834,7 +875,7 @@ def test_a_different_tag_on_origin_refuses_the_tag_instead_of_cutting_it(
 
 @needs_git
 def test_a_tag_this_gate_already_made_still_reports_a_divergent_origin(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """When the gate creates nothing, the footer still names both objects.
 
@@ -863,7 +904,7 @@ def test_a_tag_this_gate_already_made_still_reports_a_divergent_origin(
 
 @needs_git
 def test_an_origin_tag_on_another_commit_refuses_the_tag_naming_the_other_commit(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Same name, different history: never call it the same release — or cut over it."""
     bare = _bare_origin(released, tmp_path)
@@ -895,7 +936,7 @@ def test_an_origin_tag_on_another_commit_refuses_the_tag_naming_the_other_commit
 
 @needs_git
 def test_an_origin_that_cannot_be_asked_says_unproven_rather_than_guessing(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Offline or no remote is a state to report, not one to fill in from memory."""
     subprocess.run(
@@ -922,7 +963,9 @@ def test_an_origin_that_cannot_be_asked_says_unproven_rather_than_guessing(
 
 
 @needs_git
-def test_an_existing_tag_that_is_not_ours_still_refuses(gate, released, capsys) -> None:
+def test_an_existing_tag_that_is_not_ours_still_refuses(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Resuming recognises one tag: the annotated one this gate would create."""
     subprocess.run(
         ["git", "tag", "-a", "v0.4.2", "-m", "something else entirely"],
@@ -940,7 +983,9 @@ def test_an_existing_tag_that_is_not_ours_still_refuses(gate, released, capsys) 
 
 
 @needs_git
-def test_a_tag_for_another_commit_still_refuses(gate, released, capsys) -> None:
+def test_a_tag_for_another_commit_still_refuses(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A tag left on an older commit would name a release nobody verified."""
     subprocess.run(
         ["git", "tag", "-a", "v0.4.2", "-m", "v0.4.2"],
@@ -965,7 +1010,9 @@ def test_a_tag_for_another_commit_still_refuses(gate, released, capsys) -> None:
 
 
 @needs_git
-def test_without_tag_nothing_is_tagged(gate, released, capsys) -> None:
+def test_without_tag_nothing_is_tagged(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A passing checklist is not a release; it says the release is ready."""
     code = gate.main(["--root", str(released)], steps=_build(gate, _passing("tests")))
 
@@ -978,7 +1025,7 @@ def test_without_tag_nothing_is_tagged(gate, released, capsys) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_checklist_is_the_documented_eight(gate) -> None:
+def test_the_checklist_is_the_documented_eight(gate: Any) -> None:
     assert [step.name for step in gate.default_steps(REPO_ROOT)] == [
         "tests",
         "platforms",
@@ -991,7 +1038,7 @@ def test_the_checklist_is_the_documented_eight(gate) -> None:
     ]
 
 
-def test_the_notes_step_writes_them_from_the_record(gate) -> None:
+def test_the_notes_step_writes_them_from_the_record(gate: Any) -> None:
     """The last step is the release notes, and it is run by this gate.
 
     It is a step rather than a suggestion because that is what makes "no number was
@@ -1012,7 +1059,7 @@ def test_the_notes_step_writes_them_from_the_record(gate) -> None:
     )
 
 
-def test_the_steps_that_report_a_measurement_are_the_ones_that_can(gate) -> None:
+def test_the_steps_that_report_a_measurement_are_the_ones_that_can(gate: Any) -> None:
     """Facts only exist where a step states them; the rest are absent, not zero."""
     reporting = {
         step.name: step.report.name
@@ -1025,7 +1072,9 @@ def test_the_steps_that_report_a_measurement_are_the_ones_that_can(gate) -> None
 
 
 @needs_git
-def test_a_deferred_step_runs_after_the_record_is_written(gate, released, capsys) -> None:
+def test_a_deferred_step_runs_after_the_record_is_written(
+    gate: Any, released: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`notes` is last for a reason: it reads what the run measured.
 
     Driven with a step that fails unless the ledger exists, because that is the
@@ -1034,7 +1083,7 @@ def test_a_deferred_step_runs_after_the_record_is_written(gate, released, capsys
     state = gate.default_state(released)
     body = f"import pathlib, sys; sys.exit(0 if pathlib.Path(r'{state}').is_file() else 3)"
 
-    def deferred_step(gate_module):
+    def deferred_step(gate_module: Any) -> Any:
         return gate_module.Step("notes", "why", (lambda: [sys.executable, "-c", body],))
 
     code = gate.main(
@@ -1046,7 +1095,9 @@ def test_a_deferred_step_runs_after_the_record_is_written(gate, released, capsys
     assert "notes: PASS" in capsys.readouterr().out
 
 
-def test_a_step_whose_product_is_a_file_is_never_resumed(gate, released, tmp_path) -> None:
+def test_a_step_whose_product_is_a_file_is_never_resumed(
+    gate: Any, released: Path, tmp_path: Path
+) -> None:
     """Deleting the notes must not leave a record claiming they were generated.
 
     A measurement is a fact about a run and stays true; a file can be deleted between
@@ -1055,7 +1106,7 @@ def test_a_step_whose_product_is_a_file_is_never_resumed(gate, released, tmp_pat
     """
     counter = tmp_path / "derived.txt"
 
-    def derived(gate_module):
+    def derived(gate_module: Any) -> Any:
         factory = _counting("notes", counter)
         step = factory(gate_module)
         return gate_module.Step(step.name, step.why, step.commands, resumable=False)
@@ -1074,7 +1125,7 @@ def test_a_step_whose_product_is_a_file_is_never_resumed(gate, released, tmp_pat
 
 
 @needs_git
-def test_a_failing_notes_step_refuses_the_tag(gate, released) -> None:
+def test_a_failing_notes_step_refuses_the_tag(gate: Any, released: Path) -> None:
     """Notes that cannot be generated from the record stop the release."""
     code = gate.main(
         ["--root", str(released), "--tag", "v0.4.2"],
@@ -1086,7 +1137,7 @@ def test_a_failing_notes_step_refuses_the_tag(gate, released) -> None:
 
 
 @needs_git
-def test_deferred_steps_do_not_run_when_an_earlier_step_failed(gate, released) -> None:
+def test_deferred_steps_do_not_run_when_an_earlier_step_failed(gate: Any, released: Path) -> None:
     """A deferred step documents a run; a failed run has nothing to document.
 
     Without this the notes step passed beside a failing suite and left a notes file
@@ -1102,7 +1153,7 @@ def test_deferred_steps_do_not_run_when_an_earlier_step_failed(gate, released) -
     assert not counter.exists(), "the deferred step ran after a step had failed"
 
 
-def test_the_platforms_step_asks_the_other_platforms_for_this_commit(gate) -> None:
+def test_the_platforms_step_asks_the_other_platforms_for_this_commit(gate: Any) -> None:
     """The suite passing here says nothing about Windows, so the step asks.
 
     It must read the checkout it was pointed at, because `--commit` defaults to the
@@ -1117,7 +1168,7 @@ def test_the_platforms_step_asks_the_other_platforms_for_this_commit(gate) -> No
 
 
 @needs_git
-def test_platforms_that_never_ran_block_the_tag(gate, released) -> None:
+def test_platforms_that_never_ran_block_the_tag(gate: Any, released: Path) -> None:
     """A commit whose CI is red or absent must not become a release.
 
     This is v0.4.3: it was tagged and published here, and only then did CI report
@@ -1134,7 +1185,7 @@ def test_platforms_that_never_ran_block_the_tag(gate, released) -> None:
     assert _tags(released) == "", "a tag was created although the other platforms never passed"
 
 
-def test_the_wheel_step_checks_the_artefact_that_was_just_built(gate) -> None:
+def test_the_wheel_step_checks_the_artefact_that_was_just_built(gate: Any) -> None:
     """The wheel step is only meaningful on the artefact the build step wrote.
 
     It runs `check_wheel_version.py` against *this* checkout, which finds the wheel
@@ -1156,7 +1207,7 @@ def test_the_wheel_step_checks_the_artefact_that_was_just_built(gate) -> None:
     )
 
 
-def test_the_index_is_asked_after_the_audit_and_before_the_notes(gate) -> None:
+def test_the_index_is_asked_after_the_audit_and_before_the_notes(gate: Any) -> None:
     """It compares what was built, and the notes carry its measurement."""
     names = [step.name for step in gate.default_steps(REPO_ROOT)]
     published = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "published")
@@ -1170,7 +1221,7 @@ def test_the_index_is_asked_after_the_audit_and_before_the_notes(gate) -> None:
     assert published.report.name == "published.json", "its measurement is read by the notes"
 
 
-def test_the_index_step_is_never_resumed(gate) -> None:
+def test_the_index_step_is_never_resumed(gate: Any) -> None:
     """Its answer changes while the tree does not, which is the whole point.
 
     The run that cuts the tag records "nothing published yet" — publishing comes after —
@@ -1184,7 +1235,7 @@ def test_the_index_step_is_never_resumed(gate) -> None:
 
 
 def test_a_step_that_asks_the_world_again_replaces_what_it_measured(
-    gate, released, tmp_path
+    gate: Any, released: Path, tmp_path: Path
 ) -> None:
     """Driven, not just declared: a second run has to record the new answer.
 
@@ -1201,7 +1252,7 @@ def test_a_step_that_asks_the_world_again_replaces_what_it_measured(
         "'facts': {'published': value == 'present'}}))"
     )
 
-    def asking(gate_module):
+    def asking(gate_module: Any) -> Any:
         return gate_module.Step(
             "published",
             "why",
@@ -1225,7 +1276,7 @@ def test_a_step_that_asks_the_world_again_replaces_what_it_measured(
     )
 
 
-def test_the_checklist_includes_the_copy_check(gate) -> None:
+def test_the_checklist_includes_the_copy_check(gate: Any) -> None:
     """Without this step the gate cannot notice a skill copy that disagrees."""
     copies = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "copies")
     commands = " ".join(" ".join(build_argv()) for build_argv in copies.commands)
@@ -1233,14 +1284,14 @@ def test_the_checklist_includes_the_copy_check(gate) -> None:
     assert "check_skills.py" in commands
 
 
-def test_the_build_step_builds_then_validates(gate) -> None:
+def test_the_build_step_builds_then_validates(gate: Any) -> None:
     build = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "build")
 
     assert len(build.commands) == 2
     assert "-m build" in " ".join(build.commands[0]())
 
 
-def test_twine_validates_only_the_version_being_released(gate, released) -> None:
+def test_twine_validates_only_the_version_being_released(gate: Any, released: Path) -> None:
     """A previous release left in `dist/` is not this release's evidence."""
     dist = released / "dist"
     dist.mkdir()
@@ -1255,7 +1306,7 @@ def test_twine_validates_only_the_version_being_released(gate, released) -> None
     assert not any("0.4.1" in argument for argument in argv)
 
 
-def test_an_empty_dist_fails_instead_of_validating_nothing(gate, released) -> None:
+def test_an_empty_dist_fails_instead_of_validating_nothing(gate: Any, released: Path) -> None:
     """twine with no arguments is a usage error, not a build that passed."""
     (released / "dist").mkdir()
 
@@ -1267,7 +1318,7 @@ def test_an_empty_dist_fails_instead_of_validating_nothing(gate, released) -> No
     assert "no sdist or wheel" in completed.stdout
 
 
-def test_a_checkout_without_a_version_cannot_be_tagged(gate, tmp_path) -> None:
+def test_a_checkout_without_a_version_cannot_be_tagged(gate: Any, tmp_path: Path) -> None:
     """The refusal path must not be reachable with a version it cannot read."""
     bare = tmp_path / "bare"
     bare.mkdir()
@@ -1281,7 +1332,7 @@ def test_a_checkout_without_a_version_cannot_be_tagged(gate, tmp_path) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_the_release_presence_is_decided_only_by_githubs_own_answer(gate) -> None:
+def test_the_release_presence_is_decided_only_by_githubs_own_answer(gate: Any) -> None:
     """exists / absent / unproven, from gh's exit and words.
 
     Only GitHub's own `not found` is a definite absence. The words a checkout
@@ -1297,7 +1348,7 @@ def test_the_release_presence_is_decided_only_by_githubs_own_answer(gate) -> Non
     )
 
 
-def test_the_release_line_withholds_the_command_when_the_release_exists(gate) -> None:
+def test_the_release_line_withholds_the_command_when_the_release_exists(gate: Any) -> None:
     lines = gate.release_state_lines(
         ("exists", ""), "v0.4.2", "a headline", ".freebuff/release-notes-v0.4.2.md", True
     )
@@ -1307,7 +1358,7 @@ def test_the_release_line_withholds_the_command_when_the_release_exists(gate) ->
     assert "gh release create" not in out, "nothing is left to create"
 
 
-def test_the_release_line_keeps_the_command_when_github_cannot_answer(gate) -> None:
+def test_the_release_line_keeps_the_command_when_github_cannot_answer(gate: Any) -> None:
     """A failed question suppresses neither the command nor the honesty."""
     lines = gate.release_state_lines(
         ("unproven", "no git remotes found"),
@@ -1325,7 +1376,7 @@ def test_the_release_line_keeps_the_command_when_github_cannot_answer(gate) -> N
     ) in out
 
 
-def test_the_release_line_names_the_absent_release_and_its_notes_gap(gate) -> None:
+def test_the_release_line_names_the_absent_release_and_its_notes_gap(gate: Any) -> None:
     """The command names the real notes file; the gap is the footer's own warning.
 
     It used to print `--notes-file <notes-file>` while the file was missing, which
@@ -1346,7 +1397,7 @@ def test_the_release_line_names_the_absent_release_and_its_notes_gap(gate) -> No
     )
 
 
-def test_the_pypi_line_admits_when_nothing_was_measured(gate) -> None:
+def test_the_pypi_line_admits_when_nothing_was_measured(gate: Any) -> None:
     """An absent measurement is not an absent release — the whole discipline."""
     no_facts = gate.pypi_state_lines(None)
     unaskable = gate.pypi_state_lines(
@@ -1363,7 +1414,7 @@ def test_the_pypi_line_admits_when_nothing_was_measured(gate) -> None:
     assert "has no files" not in "\n".join(no_facts + unaskable)
 
 
-def test_the_pypi_line_repeats_the_facts_the_published_step_recorded(gate) -> None:
+def test_the_pypi_line_repeats_the_facts_the_published_step_recorded(gate: Any) -> None:
     """Cited verbatim from the measurement, names and all."""
     empty = gate.pypi_state_lines(
         {"version": "0.4.2", "index": "https://pypi.org", "published": False, "files": []}
@@ -1387,7 +1438,9 @@ def test_the_pypi_line_repeats_the_facts_the_published_step_recorded(gate) -> No
     ]
 
 
-def test_a_machine_without_gh_reports_the_release_unproven(gate, released, monkeypatch) -> None:
+def test_a_machine_without_gh_reports_the_release_unproven(
+    gate: Any, released: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No gh is a question that cannot be asked, not a release that does not exist."""
     monkeypatch.setenv("PATH", "")
 
@@ -1397,7 +1450,7 @@ def test_a_machine_without_gh_reports_the_release_unproven(gate, released, monke
     assert "FileNotFoundError" in why
 
 
-def _published_step(facts: dict, report: Path):
+def _published_step(facts: dict, report: Path) -> Any:
     """A `published` step whose command writes what the real one writes."""
     body = (
         "import json, pathlib; "
@@ -1412,7 +1465,7 @@ def _published_step(facts: dict, report: Path):
 
 @needs_git
 def test_the_footer_cites_the_index_facts_this_run_measured(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The pypi row is the `published` step's measurement, cited — never re-asked."""
     facts = {
@@ -1442,7 +1495,7 @@ def test_the_footer_cites_the_index_facts_this_run_measured(
 
 @needs_git
 def test_a_run_that_measured_nothing_about_the_index_says_unproven(
-    gate, released, tmp_path, capsys
+    gate: Any, released: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
 
@@ -1458,13 +1511,17 @@ def test_a_run_that_measured_nothing_about_the_index_says_unproven(
 # --------------------------------------------------------------------------
 
 
-def _ledger(gate, released: Path) -> dict:
+def _ledger(gate: Any, released: Path) -> dict:
     return json.loads(gate.default_state(released).read_text(encoding="utf-8"))
 
 
 @needs_git
 def test_the_record_carries_the_rows_the_footer_prints(
-    gate, released, tmp_path, capsys, monkeypatch
+    gate: Any,
+    released: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The footer's `release` and `pypi` rows are facts in the record now.
 
@@ -1502,7 +1559,11 @@ def test_the_record_carries_the_rows_the_footer_prints(
 
 @needs_git
 def test_github_is_asked_once_and_cited_by_record_and_footer(
-    gate, released, tmp_path, capsys, monkeypatch
+    gate: Any,
+    released: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A second ask beside the recorded one could contradict it — so there is none.
 
@@ -1513,7 +1574,7 @@ def test_github_is_asked_once_and_cited_by_record_and_footer(
     """
     asks: list[str] = []
 
-    def fake_ask(root, name):
+    def fake_ask(root: Path, name: str) -> Any:
         asks.append(name)
         return ("exists", "")
 
@@ -1535,7 +1596,11 @@ def test_github_is_asked_once_and_cited_by_record_and_footer(
 
 @needs_git
 def test_a_github_question_that_could_not_be_asked_is_recorded_as_unproven(
-    gate, released, tmp_path, capsys, monkeypatch
+    gate: Any,
+    released: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The unproven discipline reaches the record: a failed question is no answer."""
     monkeypatch.setattr(
@@ -1559,7 +1624,11 @@ def test_a_github_question_that_could_not_be_asked_is_recorded_as_unproven(
 
 @needs_git
 def test_the_recorded_command_names_the_notes_file_whether_or_not_it_exists_yet(
-    gate, released, tmp_path, capsys, monkeypatch
+    gate: Any,
+    released: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Recorded before the notes step runs, so the row cannot depend on the file.
 
@@ -1603,7 +1672,7 @@ def _gh_reaches_github() -> str | None:
     return None
 
 
-def test_live_the_release_that_is_already_out_reads_as_existing(gate) -> None:
+def test_live_the_release_that_is_already_out_reads_as_existing(gate: Any) -> None:
     """v0.6.0: published from this checkout, and GitHub has held it since."""
     reason = _gh_reaches_github()
     if reason:
@@ -1614,7 +1683,7 @@ def test_live_the_release_that_is_already_out_reads_as_existing(gate) -> None:
     assert (state, why) == ("exists", "")
 
 
-def test_live_a_tag_with_no_release_reads_as_absent_not_as_unproven(gate) -> None:
+def test_live_a_tag_with_no_release_reads_as_absent_not_as_unproven(gate: Any) -> None:
     reason = _gh_reaches_github()
     if reason:
         pytest.skip(reason)

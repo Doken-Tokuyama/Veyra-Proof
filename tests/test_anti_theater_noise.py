@@ -14,6 +14,7 @@ project asks for it through `veyra.toml`.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -25,11 +26,11 @@ from veyra_proof.tools.anti_theater import analyze_rust_sources
 from veyra_proof.tools.base import AuditContext, parse_ignored_tests
 
 
-def scan(root: Path, policy: PolicyConfig | None = None):
+def scan(root: Path, policy: PolicyConfig | None = None) -> Any:
     return analyze_rust_sources(root, [], policy or PolicyConfig())
 
 
-def rules(findings, rule: str) -> list:
+def rules(findings: Any, rule: str) -> list:
     return [f for f in findings if f.rule == rule]
 
 
@@ -49,7 +50,7 @@ class TestCommentsAreNotCode:
     these heuristics to be wrong.
     """
 
-    def test_a_module_doc_naming_the_macros_is_not_a_placeholder(self, tmp_path):
+    def test_a_module_doc_naming_the_macros_is_not_a_placeholder(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -63,7 +64,7 @@ class TestCommentsAreNotCode:
         assert rules(found, "VT002") == []
         assert rules(found, "VT003") == []
 
-    def test_a_trailing_comment_does_not_count(self, tmp_path):
+    def test_a_trailing_comment_does_not_count(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -71,7 +72,7 @@ class TestCommentsAreNotCode:
         )
         assert rules(scan(tmp_path), "VT001") == []
 
-    def test_a_block_comment_does_not_count(self, tmp_path):
+    def test_a_block_comment_does_not_count(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -80,7 +81,9 @@ class TestCommentsAreNotCode:
         )
         assert rules(scan(tmp_path), "VT001") == []
 
-    def test_a_block_comment_that_opens_and_closes_inline_does_not_count(self, tmp_path):
+    def test_a_block_comment_that_opens_and_closes_inline_does_not_count(
+        self, tmp_path: Path
+    ) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -88,7 +91,7 @@ class TestCommentsAreNotCode:
         )
         assert rules(scan(tmp_path), "VT001") == []
 
-    def test_a_real_call_is_still_caught_beside_a_comment(self, tmp_path):
+    def test_a_real_call_is_still_caught_beside_a_comment(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -96,7 +99,7 @@ class TestCommentsAreNotCode:
         )
         assert len(rules(scan(tmp_path), "VT001")) == 1
 
-    def test_a_url_in_a_string_is_not_mangled_into_a_comment(self, tmp_path):
+    def test_a_url_in_a_string_is_not_mangled_into_a_comment(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -104,25 +107,25 @@ class TestCommentsAreNotCode:
         )
         assert rules(scan(tmp_path), "VT001") == []
 
-    def test_ignore_mentioned_in_a_comment_is_not_an_ignore(self, tmp_path):
+    def test_ignore_mentioned_in_a_comment_is_not_an_ignore(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "//! tests below are #[ignore]d deliberately\n")
         assert rules(scan(tmp_path), "VT004") == []
 
 
 class TestUnambiguousPlaceholdersStillBlock:
-    def test_todo_in_production_is_a_blocker(self, tmp_path):
+    def test_todo_in_production_is_a_blocker(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "pub fn add() -> i32 { todo!() }\n")
         found = rules(scan(tmp_path), "VT001")
         assert len(found) == 1
         assert found[0].severity == "blocker"
 
-    def test_unimplemented_in_production_is_a_blocker(self, tmp_path):
+    def test_unimplemented_in_production_is_a_blocker(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "pub fn add() -> i32 { unimplemented!() }\n")
         found = rules(scan(tmp_path), "VT002")
         assert len(found) == 1
         assert found[0].severity == "blocker"
 
-    def test_a_placeholder_inside_a_test_module_is_not_a_blocker(self, tmp_path):
+    def test_a_placeholder_inside_a_test_module_is_not_a_blocker(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -133,7 +136,7 @@ class TestUnambiguousPlaceholdersStillBlock:
 
 
 class TestWeakOraclesInFuzzTargetsAreNotFindings:
-    def test_a_fuzz_harness_without_assertions_is_not_flagged(self, tmp_path):
+    def test_a_fuzz_harness_without_assertions_is_not_flagged(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "tests/fuzz/mod.rs",
@@ -142,7 +145,7 @@ class TestWeakOraclesInFuzzTargetsAreNotFindings:
         )
         assert rules(scan(tmp_path), "VT006") == []
 
-    def test_a_fuzz_target_directory_is_excluded(self, tmp_path):
+    def test_a_fuzz_target_directory_is_excluded(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "fuzz/fuzz_targets/add.rs",
@@ -150,7 +153,7 @@ class TestWeakOraclesInFuzzTargetsAreNotFindings:
         )
         assert rules(scan(tmp_path), "VT006") == []
 
-    def test_an_ordinary_test_without_an_assertion_is_still_reported(self, tmp_path):
+    def test_an_ordinary_test_without_an_assertion_is_still_reported(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "tests/parser.rs",
@@ -158,16 +161,18 @@ class TestWeakOraclesInFuzzTargetsAreNotFindings:
         )
         assert len(rules(scan(tmp_path), "VT006")) == 1
 
-    def test_it_is_informational_by_default(self, tmp_path):
+    def test_it_is_informational_by_default(self, tmp_path: Path) -> None:
         write(tmp_path, "tests/parser.rs", '#[test]\nfn parses() {\n    parse("x");\n}\n')
         assert rules(scan(tmp_path), "VT006")[0].severity == "info"
 
-    def test_it_blocks_only_when_the_project_asks(self, tmp_path):
+    def test_it_blocks_only_when_the_project_asks(self, tmp_path: Path) -> None:
         write(tmp_path, "tests/parser.rs", '#[test]\nfn parses() {\n    parse("x");\n}\n')
         found = rules(scan(tmp_path, PolicyConfig(fail_on_weak_oracles=True)), "VT006")
         assert found[0].severity == "warning"
 
-    def test_an_ignored_test_is_reported_once_as_ignored_not_as_a_weak_oracle(self, tmp_path):
+    def test_an_ignored_test_is_reported_once_as_ignored_not_as_a_weak_oracle(
+        self, tmp_path: Path
+    ) -> None:
         write(
             tmp_path,
             "tests/slow.rs",
@@ -179,16 +184,16 @@ class TestWeakOraclesInFuzzTargetsAreNotFindings:
 
 
 class TestIgnoranceAndLintsAreJudgementCalls:
-    def test_ignore_is_informational_by_default(self, tmp_path):
+    def test_ignore_is_informational_by_default(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "#[test]\n#[ignore]\nfn slow() {}\n")
         assert rules(scan(tmp_path), "VT004")[0].severity == "info"
 
-    def test_ignore_blocks_when_configured(self, tmp_path):
+    def test_ignore_blocks_when_configured(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "#[test]\n#[ignore]\nfn slow() {}\n")
         found = rules(scan(tmp_path, PolicyConfig(fail_on_ignored_tests=True)), "VT004")
         assert found[0].severity == "error"
 
-    def test_panic_in_an_invariant_is_informational_by_default(self, tmp_path):
+    def test_panic_in_an_invariant_is_informational_by_default(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/bytes.rs",
@@ -196,27 +201,27 @@ class TestIgnoranceAndLintsAreJudgementCalls:
         )
         assert rules(scan(tmp_path), "VT003")[0].severity == "info"
 
-    def test_panic_blocks_when_configured(self, tmp_path):
+    def test_panic_blocks_when_configured(self, tmp_path: Path) -> None:
         write(tmp_path, "src/bytes.rs", 'pub fn f() { panic!("boom"); }\n')
         found = rules(scan(tmp_path, PolicyConfig(fail_on_panic=True)), "VT003")
         assert found[0].severity == "warning"
 
-    def test_lint_allow_is_informational_by_default(self, tmp_path):
+    def test_lint_allow_is_informational_by_default(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "#[allow(dead_code)]\nfn helper() {}\n")
         assert rules(scan(tmp_path), "VT013")[0].severity == "info"
 
-    def test_lint_allow_blocks_when_configured(self, tmp_path):
+    def test_lint_allow_blocks_when_configured(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "#[allow(dead_code)]\nfn helper() {}\n")
         found = rules(scan(tmp_path, PolicyConfig(fail_on_lint_allow=True)), "VT013")
         assert found[0].severity == "warning"
 
-    def test_unsafe_stays_informational(self, tmp_path):
+    def test_unsafe_stays_informational(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "pub fn f(p: *const u8) { unsafe { *p }; }\n")
         assert rules(scan(tmp_path), "VT008")[0].severity == "info"
 
 
 class TestCfgTricksAreJudgementCalls:
-    def test_cfg_not_test_is_informational_by_default(self, tmp_path):
+    def test_cfg_not_test_is_informational_by_default(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -224,7 +229,7 @@ class TestCfgTricksAreJudgementCalls:
         )
         assert rules(scan(tmp_path), "VT010")[0].severity == "info"
 
-    def test_cfg_not_test_blocks_when_configured(self, tmp_path):
+    def test_cfg_not_test_blocks_when_configured(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -233,7 +238,7 @@ class TestCfgTricksAreJudgementCalls:
         found = rules(scan(tmp_path, PolicyConfig(fail_on_cfg_tricks=True)), "VT010")
         assert found[0].severity == "warning"
 
-    def test_the_cfg_split_rule_is_informational_by_default(self, tmp_path):
+    def test_the_cfg_split_rule_is_informational_by_default(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -241,11 +246,11 @@ class TestCfgTricksAreJudgementCalls:
         )
         assert rules(scan(tmp_path), "VT015")[0].severity == "info"
 
-    def test_the_trivial_constant_rule_is_informational_by_default(self, tmp_path):
+    def test_the_trivial_constant_rule_is_informational_by_default(self, tmp_path: Path) -> None:
         write(tmp_path, "src/lib.rs", "pub fn sentinel() -> u8 {\n    return 0;\n}\n")
         assert rules(scan(tmp_path), "VT014")[0].severity == "info"
 
-    def test_a_guard_clause_is_still_not_a_placeholder(self, tmp_path):
+    def test_a_guard_clause_is_still_not_a_placeholder(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -253,7 +258,7 @@ class TestCfgTricksAreJudgementCalls:
         )
         assert rules(scan(tmp_path), "VT014") == []
 
-    def test_the_knob_is_documented_and_defaulted_off(self):
+    def test_the_knob_is_documented_and_defaulted_off(self) -> None:
         assert PolicyConfig().fail_on_cfg_tricks is False
 
 
@@ -262,18 +267,18 @@ class TestIgnoredTestsAreNeverHidden:
 
     OUTPUT = "test suite::slow ... ignored\ntest suite::ok ... ok\n"
 
-    def test_reported_as_info_by_default(self):
+    def test_reported_as_info_by_default(self) -> None:
         found = parse_ignored_tests(self.OUTPUT)
         assert len(found) == 1
         assert found[0].severity == "info"
         assert "fail_on_ignored_tests=false" in found[0].explanation
 
-    def test_escalates_to_error_when_configured(self):
+    def test_escalates_to_error_when_configured(self) -> None:
         found = parse_ignored_tests(self.OUTPUT, severity="error")
         assert found[0].severity == "error"
         assert "fail_on_ignored_tests=true" in found[0].explanation
 
-    def test_an_informational_note_is_labelled_as_one(self):
+    def test_an_informational_note_is_labelled_as_one(self) -> None:
         """`FINDINGS` with nothing blocking must not read like a problem."""
         from veyra_proof.tools.base import classify_from_command
 
@@ -289,7 +294,7 @@ class TestIgnoredTestsAreNeverHidden:
         assert severity == "info"
         assert "none blocking" in summary
 
-    def test_a_blocking_finding_keeps_the_plain_wording(self):
+    def test_a_blocking_finding_keeps_the_plain_wording(self) -> None:
         from veyra_proof.models import Finding
         from veyra_proof.tools.base import classify_from_command
 
@@ -319,7 +324,7 @@ class TestIgnoredTestsAreNeverHidden:
 class TestUpstreamStyleProjectIsNotRejected:
     """The regression that matters: a healthy crate produces nothing blocking."""
 
-    def test_a_typical_crate_yields_no_blocking_findings(self, tmp_path):
+    def test_a_typical_crate_yields_no_blocking_findings(self, tmp_path: Path) -> None:
         write(
             tmp_path,
             "src/lib.rs",
@@ -363,7 +368,7 @@ class TestUpstreamStyleProjectIsNotRejected:
 
 
 class TestToolSummaryShowsWhatWasFound:
-    def _context(self, tmp_path):
+    def _context(self, tmp_path: Path) -> Any:
         workspace = WorkspaceInfo(
             path=str(tmp_path),
             workspace_root=str(tmp_path),
@@ -398,7 +403,7 @@ class TestToolSummaryShowsWhatWasFound:
             timeout_seconds=60.0,
         )
 
-    def test_informational_findings_are_counted_not_hidden(self, tmp_path):
+    def test_informational_findings_are_counted_not_hidden(self, tmp_path: Path) -> None:
         from veyra_proof.tools.anti_theater import AntiTheaterTool
 
         write(tmp_path, "src/lib.rs", "#[allow(dead_code)]\nfn helper() {}\n")
@@ -407,7 +412,7 @@ class TestToolSummaryShowsWhatWasFound:
         assert "1 informational" in result.summary
         assert "VT013=1" in result.environment["rule_histogram"]
 
-    def test_the_log_opens_with_the_histogram(self, tmp_path):
+    def test_the_log_opens_with_the_histogram(self, tmp_path: Path) -> None:
         from veyra_proof.tools.anti_theater import AntiTheaterTool
 
         write(tmp_path, "src/lib.rs", "#[allow(dead_code)]\nfn helper() {}\n")
@@ -418,18 +423,18 @@ class TestToolSummaryShowsWhatWasFound:
 
 
 class TestPolicyComesFromTheConfigFile:
-    def test_the_new_knobs_default_to_non_blocking(self):
+    def test_the_new_knobs_default_to_non_blocking(self) -> None:
         assert PolicyConfig().fail_on_ignored_tests is False
         assert PolicyConfig().fail_on_panic is False
         assert PolicyConfig().fail_on_lint_allow is False
         assert PolicyConfig().fail_on_weak_oracles is False
         assert PolicyConfig().fail_on_cfg_tricks is False
 
-    def test_the_unambiguous_ones_still_default_to_blocking(self):
+    def test_the_unambiguous_ones_still_default_to_blocking(self) -> None:
         assert PolicyConfig().fail_on_todo is True
         assert PolicyConfig().fail_on_unimplemented is True
 
-    def test_veyra_toml_can_turn_them_back_on(self, tmp_path):
+    def test_veyra_toml_can_turn_them_back_on(self, tmp_path: Path) -> None:
         from veyra_proof.config import load_veyra_config
 
         (tmp_path / "veyra.toml").write_text(
@@ -448,7 +453,7 @@ class TestPolicyComesFromTheConfigFile:
 
 
 @pytest.mark.parametrize("rule", ["VT001", "VT002"])
-def test_placeholder_rules_keep_their_confidence(rule, tmp_path):
+def test_placeholder_rules_keep_their_confidence(rule: str, tmp_path: Path) -> None:
     write(
         tmp_path,
         "src/lib.rs",

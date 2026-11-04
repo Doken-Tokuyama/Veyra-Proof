@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -70,7 +71,15 @@ NIGHTLY_STDERR = (
 )
 
 
-def _result(command, *, exit_code=0, stdout="", stderr="", duration=0.0, timed_out=False):
+def _result(
+    command: list[str],
+    *,
+    exit_code: Any = 0,
+    stdout: Any = "",
+    stderr: Any = "",
+    duration: Any = 0.0,
+    timed_out: Any = False,
+) -> Any:
     return CommandResult(
         command=list(command),
         cwd="/w",
@@ -98,7 +107,9 @@ def _platform() -> PlatformInfo:
     )
 
 
-def _context(tmp_path: Path, runner, *, policy=None, packages=None) -> AuditContext:
+def _context(
+    tmp_path: Path, runner: Any, *, policy: Any = None, packages: Any = None
+) -> AuditContext:
     workspace = WorkspaceInfo(
         path=str(tmp_path),
         workspace_root=str(tmp_path),
@@ -129,7 +140,16 @@ class ScriptedRunner:
         self.script = script
         self.calls: list[list[str]] = []
 
-    def run(self, command, *, cwd=None, timeout=None, env=None, input_text=None, **kwargs):
+    def run(
+        self,
+        command: list[str],
+        *,
+        cwd: Any = None,
+        timeout: Any = None,
+        env: Any = None,
+        input_text: Any = None,
+        **kwargs: Any,
+    ) -> Any:
         argv = list(command)
         self.calls.append(argv)
         for prefix, result in self.script.items():
@@ -142,17 +162,17 @@ class TestStaleLockfileVerdict:
     @pytest.mark.parametrize(
         "text", [STALE_LOCK_STDERR, STALE_LOCK_STDERR_MODERN], ids=["old-wording", "cargo-1.98"]
     )
-    def test_stale_lock_is_recognised_in_every_wording(self, text):
+    def test_stale_lock_is_recognised_in_every_wording(self, text: str) -> None:
         assert stale_lockfile(text)
 
-    def test_a_clean_lock_is_not_mistaken_for_a_stale_one(self):
+    def test_a_clean_lock_is_not_mistaken_for_a_stale_one(self) -> None:
         assert not stale_lockfile("    Locking 1 package to latest compatible version")
         assert not stale_lockfile("    Finished dev [unoptimized] target(s)")
 
     @pytest.mark.parametrize(
         "text", [STALE_LOCK_STDERR, STALE_LOCK_STDERR_MODERN], ids=["old-wording", "cargo-1.98"]
     )
-    def test_stale_lock_is_inconclusive_not_a_project_error(self, text):
+    def test_stale_lock_is_inconclusive_not_a_project_error(self, text: str) -> None:
         status, severity, summary = classify_from_command(
             timed_out=False,
             exit_code=101,
@@ -165,7 +185,7 @@ class TestStaleLockfileVerdict:
         assert severity == "warning"
         assert "will not rewrite it" in summary
 
-    def test_a_real_compile_error_is_still_an_error(self):
+    def test_a_real_compile_error_is_still_an_error(self) -> None:
         status, _, _ = classify_from_command(
             timed_out=False,
             exit_code=101,
@@ -176,7 +196,7 @@ class TestStaleLockfileVerdict:
         )
         assert status == "ERROR"
 
-    def test_a_stale_lock_is_not_blamed_on_the_findings(self, tmp_path):
+    def test_a_stale_lock_is_not_blamed_on_the_findings(self, tmp_path: Path) -> None:
         """cargo prints its refusal as `error:`, so a parser could report it as a
         lint and reject the project for a lockfile it never touched."""
         runner = ScriptedRunner(
@@ -193,7 +213,7 @@ class TestStaleLockfileVerdict:
         assert result.findings == []
         assert "will not rewrite it" in result.summary
 
-    def test_a_stale_lock_wins_over_a_real_clippy_finding(self, tmp_path):
+    def test_a_stale_lock_wins_over_a_real_clippy_finding(self, tmp_path: Path) -> None:
         runner = ScriptedRunner(
             {
                 "cargo clippy --workspace": _result(
@@ -209,19 +229,19 @@ class TestStaleLockfileVerdict:
 
 
 class TestNightlyOnlyTargets:
-    def test_the_feature_gate_is_recognised_with_its_file(self):
+    def test_the_feature_gate_is_recognised_with_its_file(self) -> None:
         assert nightly_only_targets(NIGHTLY_STDERR) == ["regex-syntax/benches/bench.rs"]
 
-    def test_a_genuine_error_alongside_is_not_a_toolchain_problem(self):
+    def test_a_genuine_error_alongside_is_not_a_toolchain_problem(self) -> None:
         mixed = NIGHTLY_STDERR + "error[E0308]: mismatched types\n --> src/lib.rs:2:5\n"
         assert nightly_only_targets(mixed) == []
 
-    def test_clean_output_yields_nothing(self):
+    def test_clean_output_yields_nothing(self) -> None:
         assert nightly_only_targets("    Finished release profile") == []
 
 
 class TestCargoCheckNightlyFallback:
-    def _runner(self):
+    def _runner(self) -> Any:
         return ScriptedRunner(
             {
                 "cargo check --workspace --all-targets": _result(
@@ -239,7 +259,7 @@ class TestCargoCheckNightlyFallback:
             }
         )
 
-    def test_verdict_is_inconclusive_and_names_the_unverified_file(self, tmp_path):
+    def test_verdict_is_inconclusive_and_names_the_unverified_file(self, tmp_path: Path) -> None:
         runner = self._runner()
         result = CargoCheckTool().run(_context(tmp_path, runner))
         assert result.status == "INCONCLUSIVE"
@@ -247,14 +267,14 @@ class TestCargoCheckNightlyFallback:
         assert "regex-syntax/benches/bench.rs" in result.summary
         assert result.severity == "warning"
 
-    def test_the_library_is_still_checked(self, tmp_path):
+    def test_the_library_is_still_checked(self, tmp_path: Path) -> None:
         runner = self._runner()
         CargoCheckTool().run(_context(tmp_path, runner))
         assert len(runner.calls) == 2
         assert "--all-targets" not in runner.calls[1]
         assert runner.calls[1][1:4] == ["check", "--workspace", "--lib"]
 
-    def test_both_attempts_stay_in_the_evidence(self, tmp_path):
+    def test_both_attempts_stay_in_the_evidence(self, tmp_path: Path) -> None:
         runner = self._runner()
         result = CargoCheckTool().run(_context(tmp_path, runner))
         assert result.stdout_path is not None
@@ -262,12 +282,12 @@ class TestCargoCheckNightlyFallback:
         assert "nightly-only feature attributes" in log
         assert "Finished dev profile" in log
 
-    def test_duration_covers_both_attempts(self, tmp_path):
+    def test_duration_covers_both_attempts(self, tmp_path: Path) -> None:
         runner = self._runner()
         result = CargoCheckTool().run(_context(tmp_path, runner))
         assert result.duration_seconds == pytest.approx(13.0)
 
-    def test_a_failure_on_stable_targets_too_stays_an_error(self, tmp_path):
+    def test_a_failure_on_stable_targets_too_stays_an_error(self, tmp_path: Path) -> None:
         runner = ScriptedRunner(
             {
                 "cargo check --workspace --all-targets": _result(
@@ -286,7 +306,7 @@ class TestCargoCheckNightlyFallback:
         assert result.status == "ERROR"
         assert "stable targets too" in result.summary
 
-    def test_a_plain_compile_failure_gets_no_retry(self, tmp_path):
+    def test_a_plain_compile_failure_gets_no_retry(self, tmp_path: Path) -> None:
         runner = ScriptedRunner(
             {
                 "cargo check --workspace --all-targets": _result(
@@ -302,7 +322,7 @@ class TestCargoCheckNightlyFallback:
 
 
 class TestClippyNightlyFallback:
-    def test_lint_clean_stable_targets_are_still_inconclusive(self, tmp_path):
+    def test_lint_clean_stable_targets_are_still_inconclusive(self, tmp_path: Path) -> None:
         runner = ScriptedRunner(
             {
                 "cargo clippy --workspace --all-targets": _result(
@@ -323,7 +343,7 @@ class TestClippyNightlyFallback:
         assert "NOT linted" in result.summary
         assert "-D" in runner.calls[1] and "warnings" in runner.calls[1]
 
-    def test_lints_on_stable_targets_still_fail_the_build(self, tmp_path):
+    def test_lints_on_stable_targets_still_fail_the_build(self, tmp_path: Path) -> None:
         runner = ScriptedRunner(
             {
                 "cargo clippy --workspace --all-targets": _result(
@@ -345,7 +365,7 @@ class TestClippyNightlyFallback:
 
 
 class TestDurationsAreReal:
-    def test_e2e_reports_the_time_it_spent(self, tmp_path):
+    def test_e2e_reports_the_time_it_spent(self, tmp_path: Path) -> None:
         import time
 
         from veyra_proof.config import E2eConfig, E2eScenario
@@ -363,7 +383,9 @@ class TestDurationsAreReal:
         )
 
         class Runner:
-            def run(self, command, *, cwd=None, timeout=None, **kwargs):
+            def run(
+                self, command: list[str], *, cwd: Any = None, timeout: Any = None, **kwargs: Any
+            ) -> Any:
                 time.sleep(0.05)
                 if command[:2] == ["cargo", "build"]:
                     return _result(command, exit_code=0, stdout=artifact, duration=0.05)
@@ -383,7 +405,7 @@ class TestDurationsAreReal:
         # flat 0.0 hid the single most expensive step of the whole audit.
         assert result.duration_seconds >= 0.1
 
-    def test_e2e_duration_is_not_a_hardcoded_zero(self, tmp_path):
+    def test_e2e_duration_is_not_a_hardcoded_zero(self, tmp_path: Path) -> None:
         from veyra_proof.config import E2eConfig, E2eScenario
         from veyra_proof.tools.e2e import E2eTool
 
@@ -399,7 +421,9 @@ class TestDurationsAreReal:
         )
 
         class Runner:
-            def run(self, command, *, cwd=None, timeout=None, **kwargs):
+            def run(
+                self, command: list[str], *, cwd: Any = None, timeout: Any = None, **kwargs: Any
+            ) -> Any:
                 if command[:2] == ["cargo", "build"]:
                     return _result(command, exit_code=0, stdout=artifact, duration=99.0)
                 return _result(command, exit_code=101, stdout="", stderr="boom")
@@ -415,7 +439,7 @@ class TestDurationsAreReal:
         assert result.status == "FINDINGS"
         assert result.duration_seconds > 0.0
 
-    def test_anti_theater_reports_a_non_zero_scan_time(self, tmp_path):
+    def test_anti_theater_reports_a_non_zero_scan_time(self, tmp_path: Path) -> None:
         from veyra_proof.tools.anti_theater import AntiTheaterTool
 
         (tmp_path / "src").mkdir()
@@ -426,7 +450,7 @@ class TestDurationsAreReal:
 
 
 class TestFailOnNone:
-    def _results(self):
+    def _results(self) -> Any:
         from veyra_proof.models import Finding, ToolResult
 
         return [
@@ -458,25 +482,25 @@ class TestFailOnNone:
             )
         ]
 
-    def test_fail_on_none_accepts_despite_blocker_findings(self):
+    def test_fail_on_none_accepts_despite_blocker_findings(self) -> None:
         decision = decide(self._results(), fail_on="none", required_tool_ids=["veyra-anti-theater"])
         assert decision.decision == "ACCEPTED"
         assert decision.exit_code == 0
 
-    def test_fail_on_none_still_names_what_it_found(self):
+    def test_fail_on_none_still_names_what_it_found(self) -> None:
         """Accepting is not the same as hiding: the findings survive in the report."""
         results = self._results()
         decide(results, fail_on="none", required_tool_ids=["veyra-anti-theater"])
         assert results[0].findings[0].rule == "VT001"
 
-    def test_default_still_rejects_the_same_findings(self):
+    def test_default_still_rejects_the_same_findings(self) -> None:
         decision = decide(
             self._results(), fail_on="findings", required_tool_ids=["veyra-anti-theater"]
         )
         assert decision.decision == "REJECTED"
         assert decision.exit_code == 1
 
-    def test_fail_on_none_cannot_excuse_an_unauthorized_file_change(self):
+    def test_fail_on_none_cannot_excuse_an_unauthorized_file_change(self) -> None:
         decision = decide(
             self._results(),
             fail_on="none",
@@ -486,11 +510,11 @@ class TestFailOnNone:
         assert decision.decision == "REJECTED"
         assert "Unauthorized" in decision.reason
 
-    def test_fail_on_none_cannot_excuse_a_missing_required_tool(self):
+    def test_fail_on_none_cannot_excuse_a_missing_required_tool(self) -> None:
         decision = decide([], fail_on="none", required_tool_ids=["cargo-check"])
         assert decision.decision == "ACCEPTED"
 
-    def test_the_exported_decision_still_serialises(self):
+    def test_the_exported_decision_still_serialises(self) -> None:
         assert isinstance(AuditDecision("ACCEPTED", "x", 0).to_dict(), dict)
 
 
@@ -502,10 +526,10 @@ class TestTheRunSaysWhereItsTimeWent:
     needs that number without re-running anything.
     """
 
-    def _results(self):
+    def _results(self) -> Any:
         from veyra_proof.models import ToolResult
 
-        def make(tool_id, seconds):
+        def make(tool_id: str, seconds: float) -> Any:
             return ToolResult(
                 tool_id=tool_id,
                 display_name=tool_id,
@@ -524,7 +548,7 @@ class TestTheRunSaysWhereItsTimeWent:
 
         return [make("cargo-test", 415.0), make("clippy", 7.8), make("rustfmt", 2.7)]
 
-    def test_the_slowest_tool_is_named_with_its_seconds(self):
+    def test_the_slowest_tool_is_named_with_its_seconds(self) -> None:
         from veyra_proof.reporting import timing_accounting
 
         timing = timing_accounting(self._results(), wall_seconds=444.3)
@@ -536,14 +560,14 @@ class TestTheRunSaysWhereItsTimeWent:
         assert timing["tool_seconds"] == 425.5
         assert timing["wall_seconds"] == 444.3
 
-    def test_the_table_states_the_total_and_the_gap(self):
+    def test_the_table_states_the_total_and_the_gap(self) -> None:
         from veyra_proof.reporting import render_timing, timing_accounting
 
         text = render_timing(timing_accounting(self._results(), wall_seconds=444.3))
         assert "415.0s  cargo-test" in text
         assert "total in tools: 425.5s of 444.3s wall" in text
 
-    def test_a_tool_that_records_no_time_is_not_hidden(self, tmp_path):
+    def test_a_tool_that_records_no_time_is_not_hidden(self, tmp_path: Path) -> None:
         """A skipped tool and a tool whose duration vanished must read differently.
 
         A flat 0.0 was the original bug. Listing a skipped tool beside it would
@@ -552,7 +576,7 @@ class TestTheRunSaysWhereItsTimeWent:
         from veyra_proof.models import ToolResult
         from veyra_proof.reporting import render_timing, timing_accounting
 
-        def make(tool_id, status):
+        def make(tool_id: str, status: Any) -> Any:
             return ToolResult(
                 tool_id=tool_id,
                 display_name=tool_id,
@@ -575,7 +599,7 @@ class TestTheRunSaysWhereItsTimeWent:
         assert "ran without recording a duration: mystery" in text
         assert {e["tool"] for e in timing["tools_without_timing"]} == {"fuzz", "mystery"}
 
-    def test_the_timing_reaches_the_report(self, tmp_path):
+    def test_the_timing_reaches_the_report(self, tmp_path: Path) -> None:
         from veyra_proof.cli import main
 
         crate = tmp_path / "w"
@@ -607,7 +631,7 @@ class TestReproducibleBuildIsAPolicyDecision:
     finding, both digests and the summary stay exactly as they were.
     """
 
-    def _run(self, tmp_path, *, policy):
+    def _run(self, tmp_path: Path, *, policy: Any) -> Any:
         from veyra_proof.tools.reproducible_build import ReproducibleBuildTool
 
         (tmp_path / "Cargo.toml").write_text(
@@ -638,30 +662,32 @@ class TestReproducibleBuildIsAPolicyDecision:
         )
         return ReproducibleBuildTool().run(context)
 
-    def test_by_default_the_mismatch_is_informational(self, tmp_path):
+    def test_by_default_the_mismatch_is_informational(self, tmp_path: Path) -> None:
         result = self._run(tmp_path, policy=PolicyConfig())
         assert result.status == "INCONCLUSIVE"
         assert result.findings[0].rule == "repro-mismatch"
         assert result.findings[0].severity == "info"
 
-    def test_both_digests_are_pinned_as_evidence_either_way(self, tmp_path):
+    def test_both_digests_are_pinned_as_evidence_either_way(self, tmp_path: Path) -> None:
         result = self._run(tmp_path, policy=PolicyConfig())
         keys = {k.split(":", 1)[0] for k in result.artifact_hashes}
         assert "a" in keys and "b" in keys
 
-    def test_the_summary_still_says_reproducibility_is_not_established(self, tmp_path):
+    def test_the_summary_still_says_reproducibility_is_not_established(
+        self, tmp_path: Path
+    ) -> None:
         result = self._run(tmp_path, policy=PolicyConfig())
         assert "not established" in result.summary
         assert "require_reproducible_build" not in result.summary
 
-    def test_the_project_can_make_it_a_hard_requirement(self, tmp_path):
+    def test_the_project_can_make_it_a_hard_requirement(self, tmp_path: Path) -> None:
         result = self._run(tmp_path, policy=PolicyConfig(require_reproducible_build=True))
         assert result.findings[0].severity == "error"
         assert "policy.require_reproducible_build=true" in result.summary
         decision = decide([result], fail_on="error", required_tool_ids=["cargo-check"])
         assert decision.decision == "REJECTED"
 
-    def test_the_knob_is_off_by_default_and_read_from_veyra_toml(self, tmp_path):
+    def test_the_knob_is_off_by_default_and_read_from_veyra_toml(self, tmp_path: Path) -> None:
         from veyra_proof.config import load_veyra_config
 
         assert PolicyConfig().require_reproducible_build is False
@@ -678,7 +704,16 @@ class _HashingRunner:
         self.root = root
         self.calls = 0
 
-    def run(self, command, *, cwd=None, timeout=None, env=None, input_text=None, **kwargs):
+    def run(
+        self,
+        command: list[str],
+        *,
+        cwd: Any = None,
+        timeout: Any = None,
+        env: Any = None,
+        input_text: Any = None,
+        **kwargs: Any,
+    ) -> Any:
         self.calls += 1
         target_dir = Path(command[command.index("--target-dir") + 1])
         artifact = target_dir / "debug" / "w.exe"
@@ -705,7 +740,7 @@ class TestAnObservedFactBlocksWhenTheToolIsInconclusiveAndPolicySaysSo:
     is FINDINGS would let that observation through the back door of the status.
     """
 
-    def _results(self, severity):
+    def _results(self, severity: Any) -> Any:
         from veyra_proof.models import Finding, ToolResult
 
         return [
@@ -737,7 +772,7 @@ class TestAnObservedFactBlocksWhenTheToolIsInconclusiveAndPolicySaysSo:
             )
         ]
 
-    def test_a_warning_observation_is_rejected_under_the_default(self):
+    def test_a_warning_observation_is_rejected_under_the_default(self) -> None:
         decision = decide(
             self._results("warning"),
             fail_on="findings",
@@ -746,7 +781,7 @@ class TestAnObservedFactBlocksWhenTheToolIsInconclusiveAndPolicySaysSo:
         assert decision.decision == "REJECTED"
         assert "reproducible-build:repro-mismatch" in decision.reason
 
-    def test_fail_on_error_keeps_it_out_of_the_way(self):
+    def test_fail_on_error_keeps_it_out_of_the_way(self) -> None:
         decision = decide(
             self._results("warning"),
             fail_on="error",
@@ -754,7 +789,7 @@ class TestAnObservedFactBlocksWhenTheToolIsInconclusiveAndPolicySaysSo:
         )
         assert decision.decision != "REJECTED"
 
-    def test_an_informational_note_still_does_not_block(self):
+    def test_an_informational_note_still_does_not_block(self) -> None:
         decision = decide(
             self._results("info"),
             fail_on="findings",
@@ -764,12 +799,12 @@ class TestAnObservedFactBlocksWhenTheToolIsInconclusiveAndPolicySaysSo:
 
 
 class TestCargoAuditRunsWhenTheLockAppears:
-    def _audit_tool(self):
+    def _audit_tool(self) -> Any:
         from veyra_proof.tools.audit import CargoAuditTool
 
         return CargoAuditTool()
 
-    def test_the_file_is_authoritative_not_the_discovery_flag(self, tmp_path):
+    def test_the_file_is_authoritative_not_the_discovery_flag(self, tmp_path: Path) -> None:
         """cargo wrote the lockfile after `cargo metadata` ran.
 
         Discovery recorded no lockfile, so the old code skipped the audit and a
@@ -778,7 +813,7 @@ class TestCargoAuditRunsWhenTheLockAppears:
         (tmp_path / "Cargo.lock").write_text("version = 4\n", encoding="utf-8")
 
         class Runner:
-            def run(self, command, **kwargs):
+            def run(self, command: list[str], **kwargs: Any) -> Any:
                 return _result(command, exit_code=0, stdout="Success\n")
 
         context = _context(tmp_path, Runner())
@@ -787,11 +822,11 @@ class TestCargoAuditRunsWhenTheLockAppears:
         assert result.status == "OK"
         assert result.command == ["cargo", "audit"]
 
-    def test_an_advisory_is_still_reported_on_that_first_run(self, tmp_path):
+    def test_an_advisory_is_still_reported_on_that_first_run(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.lock").write_text("version = 4\n", encoding="utf-8")
 
         class Runner:
-            def run(self, command, **kwargs):
+            def run(self, command: list[str], **kwargs: Any) -> Any:
                 return _result(
                     command,
                     exit_code=1,
@@ -802,11 +837,13 @@ class TestCargoAuditRunsWhenTheLockAppears:
         assert result.status == "FINDINGS"
         assert "RUSTSEC-2020-0071" in {f.rule for f in result.findings}
 
-    def test_dependencies_without_a_lockfile_are_never_called_a_pass(self, tmp_path):
+    def test_dependencies_without_a_lockfile_are_never_called_a_pass(self, tmp_path: Path) -> None:
         packages = [{"name": "w", "dependencies": [{"name": "time"}]}]
 
         class Runner:
-            def run(self, command, **kwargs):  # pragma: no cover - must not run
+            def run(
+                self, command: list[str], **kwargs: Any
+            ) -> None:  # pragma: no cover - must not run
                 raise AssertionError("cargo-audit ran without a lockfile")
 
         result = self._audit_tool().run(_context(tmp_path, Runner(), packages=packages))
@@ -814,16 +851,18 @@ class TestCargoAuditRunsWhenTheLockAppears:
         assert "not a pass" in result.summary
         assert any(f.rule == "unlocked-dependencies" for f in result.findings)
 
-    def test_a_crate_without_dependencies_skips_plainly(self, tmp_path):
+    def test_a_crate_without_dependencies_skips_plainly(self, tmp_path: Path) -> None:
         class Runner:
-            def run(self, command, **kwargs):  # pragma: no cover - must not run
+            def run(
+                self, command: list[str], **kwargs: Any
+            ) -> None:  # pragma: no cover - must not run
                 raise AssertionError("cargo-audit ran without a lockfile")
 
         result = self._audit_tool().run(_context(tmp_path, Runner(), packages=[]))
         assert result.status == "SKIPPED"
         assert "no dependencies declared" in result.summary
 
-    def test_require_lockfile_policy_still_produces_a_finding(self, tmp_path):
+    def test_require_lockfile_policy_still_produces_a_finding(self, tmp_path: Path) -> None:
         packages = [{"name": "w", "dependencies": [{"name": "time"}]}]
         result = self._audit_tool().run(
             _context(

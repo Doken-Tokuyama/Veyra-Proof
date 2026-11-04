@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -31,7 +32,7 @@ REVISION = "b" * 64
 
 
 @pytest.fixture()
-def combined():
+def combined() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_skills", COMBINED)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -127,7 +128,9 @@ def _sandbox(tmp_path: Path) -> tuple[Path, Path, Path]:
     return root, home, store
 
 
-def _run(combined, root: Path, home: Path, store: Path, capsys) -> tuple[int, str]:
+def _run(
+    combined: ModuleType, root: Path, home: Path, store: Path, capsys: pytest.CaptureFixture[str]
+) -> tuple[int, str]:
     code = combined.main(
         [
             "--root",
@@ -142,7 +145,9 @@ def _run(combined, root: Path, home: Path, store: Path, capsys) -> tuple[int, st
     return code, captured.out + captured.err
 
 
-def test_every_copy_current_passes(combined, tmp_path, capsys) -> None:
+def test_every_copy_current_passes(
+    combined: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     root, home, store = _sandbox(tmp_path)
     _write_store(store, _canonical(root))
 
@@ -154,7 +159,7 @@ def test_every_copy_current_passes(combined, tmp_path, capsys) -> None:
 
 
 def test_a_harness_target_that_is_not_the_canonical_skill_fails_and_names_the_repair(
-    combined, tmp_path, capsys
+    combined: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """What this repository can fix is the one thing that fails.
 
@@ -177,7 +182,9 @@ def test_a_harness_target_that_is_not_the_canonical_skill_fails_and_names_the_re
     assert "python3 scripts/sync_skill.py" in out
 
 
-def test_account_drift_warns_but_does_not_fail(combined, tmp_path, capsys) -> None:
+def test_account_drift_warns_but_does_not_fail(
+    combined: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The policy, stated as a test: a cache nobody here can repair must not block.
 
     A contributor whose Cloud cache is stale would otherwise never see a green
@@ -196,7 +203,9 @@ def test_account_drift_warns_but_does_not_fail(combined, tmp_path, capsys) -> No
     assert "skill manager" in out
 
 
-def test_a_check_that_cannot_run_fails(combined, tmp_path, capsys) -> None:
+def test_a_check_that_cannot_run_fails(
+    combined: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A broken checker is a defect here, not a stale copy."""
     root = tmp_path / "not-a-checkout"
     root.mkdir()
@@ -209,7 +218,9 @@ def test_a_check_that_cannot_run_fails(combined, tmp_path, capsys) -> None:
     assert "could not run" in out
 
 
-def test_both_reports_are_printed_even_when_the_first_fails(combined, tmp_path, capsys) -> None:
+def test_both_reports_are_printed_even_when_the_first_fails(
+    combined: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Nothing is hidden behind an early exit: the point is not to forget one."""
     root, home, store = _sandbox(tmp_path)
     target = home / ".cursor" / "skills" / SKILL_NAME
@@ -224,7 +235,9 @@ def test_both_reports_are_printed_even_when_the_first_fails(combined, tmp_path, 
     assert "=== verdict" in out
 
 
-def test_the_reports_name_the_commands_they_ran(combined, tmp_path, capsys) -> None:
+def test_the_reports_name_the_commands_they_ran(
+    combined: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A verdict a reader cannot reproduce is a claim, not evidence."""
     root, home, store = _sandbox(tmp_path)
     _write_store(store, _canonical(root))
@@ -237,7 +250,7 @@ def test_the_reports_name_the_commands_they_ran(combined, tmp_path, capsys) -> N
     assert str(store) in out
 
 
-def test_it_only_reads(tmp_path) -> None:
+def test_it_only_reads(tmp_path: Path) -> None:
     """Both sub-checks promise not to write; the combined command inherits it."""
     root, home, store = _sandbox(tmp_path)
     _write_store(store, _canonical(root))

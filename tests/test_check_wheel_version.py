@@ -29,6 +29,8 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -50,7 +52,7 @@ MAIN_SOURCE = "import sys\nfrom veyra_proof.cli import main\n\nraise SystemExit(
 
 
 @pytest.fixture(scope="module")
-def check():
+def check() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_wheel_version", CHECK)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -118,11 +120,11 @@ def _root(tmp_path: Path, version: str = CONSISTENT) -> Path:
 
 
 def _run(
-    check,
+    check: ModuleType,
     root: Path,
     dist: Path,
     *extra: str,
-    capsys=None,
+    capsys: pytest.CaptureFixture[str] | None = None,
     env: dict[str, str] | None = None,
 ) -> tuple[int, str]:
     """Run the checker in-process, or out of process when an env var matters."""
@@ -151,7 +153,7 @@ def _run(
 
 
 @pytest.fixture(scope="module")
-def shared_venv(tmp_path_factory) -> Path:
+def shared_venv(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One environment, reused by every case that needs an install.
 
     Creating a venv per case costs seconds each for no extra coverage; the
@@ -161,7 +163,9 @@ def shared_venv(tmp_path_factory) -> Path:
     return tmp_path_factory.mktemp("wheel-venv")
 
 
-def test_a_consistent_wheel_passes(check, tmp_path, shared_venv, capsys) -> None:
+def test_a_consistent_wheel_passes(
+    check: ModuleType, tmp_path: Path, shared_venv: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The whole claim, end to end: pip install, then four independent reports.
 
     The venv is the shared, caller-provided one, so this also covers the two
@@ -196,7 +200,9 @@ def test_a_consistent_wheel_passes(check, tmp_path, shared_venv, capsys) -> None
     )
 
 
-def test_a_failing_wheel_still_writes_what_it_saw(check, tmp_path, shared_venv, capsys) -> None:
+def test_a_failing_wheel_still_writes_what_it_saw(
+    check: ModuleType, tmp_path: Path, shared_venv: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The report is a record, not a verdict: it is written either way, and the gate
     ignores it unless the step passed. A reader debugging a failure gets the facts."""
     root = _root(tmp_path)
@@ -222,7 +228,7 @@ def test_a_failing_wheel_still_writes_what_it_saw(check, tmp_path, shared_venv, 
 
 
 def test_a_source_tree_on_pythonpath_cannot_answer_for_the_wheel(
-    check, tmp_path, shared_venv
+    check: ModuleType, tmp_path: Path, shared_venv: Path
 ) -> None:
     """The failure this check would otherwise be blind to, and a false *pass* at that.
 
@@ -256,7 +262,7 @@ def test_a_source_tree_on_pythonpath_cannot_answer_for_the_wheel(
 
 
 def test_a_stale_module_version_fails_and_names_both_values(
-    check, tmp_path, shared_venv, capsys
+    check: ModuleType, tmp_path: Path, shared_venv: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The 0.4.1 defect, reproduced: the distribution said 0.4.1, the module 0.3.0."""
     root = _root(tmp_path)
@@ -273,7 +279,9 @@ def test_a_stale_module_version_fails_and_names_both_values(
     )
 
 
-def test_a_wheel_without_its_console_script_fails(check, tmp_path, shared_venv, capsys) -> None:
+def test_a_wheel_without_its_console_script_fails(
+    check: ModuleType, tmp_path: Path, shared_venv: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A wheel that installs no `veyra` is broken however well it imports."""
     root = _root(tmp_path)
     dist = tmp_path / "dist"
@@ -286,7 +294,7 @@ def test_a_wheel_without_its_console_script_fails(check, tmp_path, shared_venv, 
 
 
 def test_the_console_script_is_named_the_way_the_wheel_declares_it(
-    check, tmp_path, monkeypatch
+    check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The claim is about `veyra`, not about the file this platform lands it in.
 
@@ -309,7 +317,7 @@ def test_the_console_script_is_named_the_way_the_wheel_declares_it(
         def __init__(self, code: int, out: str = "") -> None:
             self.returncode, self.stdout, self.stderr = code, out, ""
 
-    def answer(argv, env):
+    def answer(argv: list[str], env: Any) -> Any:
         # The console script is the only question that answers with a version; the rest
         # (metadata, module, module entry) are left empty so only one claim is under test.
         return Stub(0, "veyra 0.3.0\n") if argv[0] == str(console) else Stub(0)
@@ -325,7 +333,9 @@ def test_the_console_script_is_named_the_way_the_wheel_declares_it(
     assert confirmed == [], "a console script that disagrees cannot be confirmed either"
 
 
-def test_a_wheel_for_another_version_is_not_this_release(check, tmp_path, capsys) -> None:
+def test_a_wheel_for_another_version_is_not_this_release(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A `dist/` left from the previous release says nothing about this one."""
     root = _root(tmp_path, version="9.9.9")
     dist = tmp_path / "dist"
@@ -337,7 +347,9 @@ def test_a_wheel_for_another_version_is_not_this_release(check, tmp_path, capsys
     assert "no wheel for veyra-proof 9.9.9" in out
 
 
-def test_two_wheels_for_one_version_are_refused(check, tmp_path, capsys) -> None:
+def test_two_wheels_for_one_version_are_refused(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Whichever one pip picked, the other is evidence nobody checked."""
     root = _root(tmp_path)
     dist = tmp_path / "dist"
@@ -351,7 +363,9 @@ def test_two_wheels_for_one_version_are_refused(check, tmp_path, capsys) -> None
     assert "remove the stale one" in out
 
 
-def test_a_missing_pyproject_is_misuse(check, tmp_path, capsys) -> None:
+def test_a_missing_pyproject_is_misuse(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Exit 2 means the check could not run, which is not a verdict about a wheel."""
     root = tmp_path / "bare"
     root.mkdir()
@@ -362,7 +376,9 @@ def test_a_missing_pyproject_is_misuse(check, tmp_path, capsys) -> None:
     assert "no pyproject.toml" in out
 
 
-def test_a_temporary_environment_is_removed_on_success(check, tmp_path, capsys) -> None:
+def test_a_temporary_environment_is_removed_on_success(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Throwaway means throwaway: the success path leaves nothing behind."""
     root = _root(tmp_path)
     dist = tmp_path / "dist"

@@ -22,6 +22,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -35,7 +37,7 @@ V043_COMMIT = "d4a40924e32b5a6fe2f029c53e4588ec0f56a2f7"
 
 
 @pytest.fixture()
-def check():
+def check() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_platforms", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -44,7 +46,7 @@ def check():
     return module
 
 
-def _run(**overrides) -> dict:
+def _run(**overrides: Any) -> dict:
     """A run of the CI workflow, shaped the way the API reports one."""
     run = {
         "id": 1,
@@ -84,7 +86,7 @@ def _green() -> list[dict]:
 
 
 class TestTheVerdict:
-    def test_a_green_run_on_every_platform_passes(self, check):
+    def test_a_green_run_on_every_platform_passes(self, check: ModuleType) -> None:
         problems, confirmed = check.classify(
             "a" * 40, "CI", _run(), _green(), check.REQUIRED_PLATFORMS
         )
@@ -92,7 +94,7 @@ class TestTheVerdict:
         assert problems == []
         assert any("windows-latest: 2 job(s) success" in line for line in confirmed)
 
-    def test_the_live_audit_has_to_run_on_both_audit_platforms(self, check):
+    def test_the_live_audit_has_to_run_on_both_audit_platforms(self, check: ModuleType) -> None:
         """A green unit job on macOS is not the real audit running there."""
         jobs = [
             job for job in _green() if "live audit" not in job["name"] or "macos" not in job["name"]
@@ -111,7 +113,7 @@ class TestTheVerdict:
         assert any("live audit did not run on macos-latest" in line for line in problems)
         assert "ubuntu-latest: live audit success" in confirmed
 
-    def test_a_failed_live_audit_is_not_replaced_by_the_unit_jobs(self, check):
+    def test_a_failed_live_audit_is_not_replaced_by_the_unit_jobs(self, check: ModuleType) -> None:
         """The macOS unit jobs were green; the audit job was not, and that is the claim."""
         jobs = [
             _job(job["name"], "failure")
@@ -132,7 +134,7 @@ class TestTheVerdict:
         assert any("live audit did not run on macos-latest" in line for line in problems)
         assert any("'failure'" in line and "live audit" in line for line in problems)
 
-    def test_no_run_is_refused_with_the_instruction_that_fixes_it(self, check):
+    def test_no_run_is_refused_with_the_instruction_that_fixes_it(self, check: ModuleType) -> None:
         """Nothing has run for this commit, so nothing about it is proven.
 
         The refusal has to be actionable: the release flow is push, let CI finish,
@@ -145,7 +147,7 @@ class TestTheVerdict:
         assert "no CI run exists for aaaaaaaaaaaa" in problems[0]
         assert "push the commit" in problems[0]
 
-    def test_a_run_still_in_flight_is_not_a_verdict(self, check):
+    def test_a_run_still_in_flight_is_not_a_verdict(self, check: ModuleType) -> None:
         """In progress is not a pass, and it is not a failure either.
 
         Saying "failed" here would be wrong and would teach someone to ignore the
@@ -159,7 +161,7 @@ class TestTheVerdict:
         assert "still in_progress" in problems[0]
         assert "run the gate again" in problems[0]
 
-    def test_a_failed_platform_names_the_job_and_its_url(self, check):
+    def test_a_failed_platform_names_the_job_and_its_url(self, check: ModuleType) -> None:
         """This is the v0.4.3 shape: ubuntu and macos green, windows red."""
         jobs = [
             job if "windows" not in job["name"] else _job(job["name"], "failure")
@@ -180,7 +182,7 @@ class TestTheVerdict:
             "the missing platform must be named on its own, not only as a failed job"
         )
 
-    def test_a_cancelled_job_is_not_a_pass(self, check):
+    def test_a_cancelled_job_is_not_a_pass(self, check: ModuleType) -> None:
         """Cancelled, skipped and timed-out all leave a platform unproven."""
         jobs = [
             _job("py3.10 / ubuntu-latest"),
@@ -195,13 +197,13 @@ class TestTheVerdict:
 
         assert any("'cancelled'" in line and "py3.10 / windows-latest" in line for line in problems)
 
-    def test_a_run_with_no_jobs_proves_nothing(self, check):
+    def test_a_run_with_no_jobs_proves_nothing(self, check: ModuleType) -> None:
         problems, _ = check.classify("a" * 40, "CI", _run(), [], check.REQUIRED_PLATFORMS)
 
         assert any("reports no jobs" in line for line in problems)
         assert len([line for line in problems if "no successful job on" in line]) == 3
 
-    def test_a_platform_that_never_ran_is_refused(self, check):
+    def test_a_platform_that_never_ran_is_refused(self, check: ModuleType) -> None:
         """A release must not be the first place a supported platform reports in."""
         problems, confirmed = check.classify(
             "a" * 40, "CI", _run(), _green(), ("ubuntu-latest", "freebsd-latest")
@@ -210,7 +212,7 @@ class TestTheVerdict:
         assert "ubuntu-latest: 2 job(s) success" in " ".join(confirmed)
         assert any("no successful job on freebsd-latest" in line for line in problems)
 
-    def test_the_confirmation_says_which_python_versions_ran(self, check):
+    def test_the_confirmation_says_which_python_versions_ran(self, check: ModuleType) -> None:
         """`py3.10 / windows-latest` and `py3.13 / windows-latest` are not the same claim."""
         _, confirmed = check.classify("a" * 40, "CI", _run(), _green(), check.REQUIRED_PLATFORMS)
 
@@ -218,7 +220,7 @@ class TestTheVerdict:
 
 
 class TestPickingTheRun:
-    def test_a_run_of_another_workflow_is_not_the_evidence(self, check):
+    def test_a_run_of_another_workflow_is_not_the_evidence(self, check: ModuleType) -> None:
         """`publish.yml` runs after a tag; it cannot be the proof for cutting one."""
         runs = [
             _run(name="Publish to PyPI"),
@@ -227,7 +229,7 @@ class TestPickingTheRun:
 
         assert check.pick_run(runs, "CI") is None
 
-    def test_the_newest_attempt_of_the_workflow_wins(self, check):
+    def test_the_newest_attempt_of_the_workflow_wins(self, check: ModuleType) -> None:
         """A commit can carry an original run and a re-run; only the last counts."""
         runs = [
             _run(run_number=7, conclusion="failure"),
@@ -239,7 +241,9 @@ class TestPickingTheRun:
 
 
 class TestThePromiseAndTheMatrix:
-    def test_the_matrix_still_covers_every_platform_a_release_claims(self, check):
+    def test_the_matrix_still_covers_every_platform_a_release_claims(
+        self, check: ModuleType
+    ) -> None:
         """Two lists that have to agree, held together on purpose.
 
         `REQUIRED_PLATFORMS` is the promise a release makes. If CI stops building the
@@ -257,7 +261,7 @@ class TestThePromiseAndTheMatrix:
             f"{sorted(set(check.REQUIRED_PLATFORMS) - in_matrix)}"
         )
 
-    def test_the_audit_matrix_covers_macos_and_linux(self, check):
+    def test_the_audit_matrix_covers_macos_and_linux(self, check: ModuleType) -> None:
         """The real audit runs where the release claims it runs, not on one runner."""
         text = CI_WORKFLOW.read_text(encoding="utf-8")
         audit = text.split("\n  audit:\n", 1)[1].split("\n  account-skill:\n", 1)[0]
@@ -275,14 +279,16 @@ class TestThePromiseAndTheMatrix:
             "the two audit jobs would upload the same artifact name"
         )
 
-    def test_the_default_workflow_is_the_one_that_carries_the_matrix(self, check):
+    def test_the_default_workflow_is_the_one_that_carries_the_matrix(
+        self, check: ModuleType
+    ) -> None:
         """The default has to name a real workflow, or nothing is ever found."""
         text = CI_WORKFLOW.read_text(encoding="utf-8")
 
         assert check.DEFAULT_WORKFLOW == "CI"
         assert re.search(rf"^name:\s*{check.DEFAULT_WORKFLOW}\s*$", text, flags=re.MULTILINE)
 
-    def test_the_job_names_still_carry_what_the_check_looks_for(self, check):
+    def test_the_job_names_still_carry_what_the_check_looks_for(self, check: ModuleType) -> None:
         """The check reads the platform out of the job name.
 
         That name is a template in the workflow (`py${{ matrix.python }} /
@@ -335,7 +341,7 @@ def _live(*argv: str, root: Path = REPO_ROOT) -> subprocess.CompletedProcess[str
     )
 
 
-def test_live_the_check_reads_this_repositorys_own_ci():
+def test_live_the_check_reads_this_repositorys_own_ci() -> None:
     """The plumbing: resolve the commit, find the run, report its jobs."""
     reason = _gh_reaches_github()
     if reason:
@@ -354,7 +360,7 @@ def test_live_the_check_reads_this_repositorys_own_ci():
         assert "live audit confirmed on ubuntu-latest, macos-latest" in completed.stdout
 
 
-def test_live_the_commit_that_shipped_a_red_windows_build_is_refused():
+def test_live_the_commit_that_shipped_a_red_windows_build_is_refused() -> None:
     """v0.4.3: the release the step exists for.
 
     It was tagged and published from this checkout, and CI reported the failure on
@@ -382,7 +388,7 @@ def test_live_the_commit_that_shipped_a_red_windows_build_is_refused():
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_live_a_commit_github_has_never_seen_is_refused(tmp_path: Path):
+def test_live_a_commit_github_has_never_seen_is_refused(tmp_path: Path) -> None:
     """The pre-push state, which is where a releaser actually starts.
 
     A commit that exists only here has no run, so nothing about Windows or macOS has
@@ -412,8 +418,12 @@ def test_live_a_commit_github_has_never_seen_is_refused(tmp_path: Path):
 
 class TestTheCommandLine:
     def test_an_unresolvable_commit_is_misuse_not_a_verdict(
-        self, check, tmp_path, capsys, monkeypatch
-    ):
+        self,
+        check: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """A typo must not read as "the platforms failed"."""
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: None)
 
@@ -422,7 +432,13 @@ class TestTheCommandLine:
         assert code == 2
         assert "cannot resolve 'nope'" in capsys.readouterr().err
 
-    def test_a_repository_it_cannot_read_is_not_a_pass(self, check, tmp_path, capsys, monkeypatch):
+    def test_a_repository_it_cannot_read_is_not_a_pass(
+        self,
+        check: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Exit 2 exists so an unverifiable release is refused, never assumed green."""
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: "a" * 40)
         monkeypatch.setattr(check, "repo_slug", lambda root: "owner/name")
@@ -436,8 +452,12 @@ class TestTheCommandLine:
         assert "this is not a pass" in error
 
     def test_a_green_run_exits_zero_and_confirms_each_platform(
-        self, check, tmp_path, capsys, monkeypatch
-    ):
+        self,
+        check: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: "b" * 40)
         monkeypatch.setattr(check, "repo_slug", lambda root: "owner/name")
         monkeypatch.setattr(check, "runs_for", lambda slug, sha, root: (0, [_run()], ""))
@@ -451,8 +471,12 @@ class TestTheCommandLine:
         assert "bbbbbbbbbbbb" in out
 
     def test_a_red_run_exits_one_and_says_the_tag_was_refused(
-        self, check, tmp_path, capsys, monkeypatch
-    ):
+        self,
+        check: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         jobs = [
             _job(job["name"], "failure" if "windows" in job["name"] else "success")
             for job in _green()
@@ -470,7 +494,9 @@ class TestTheCommandLine:
         assert code == 1
         assert "the tag was refused" in out
 
-    def test_the_report_states_the_commit_platforms_and_jobs(self, check, tmp_path, monkeypatch):
+    def test_the_report_states_the_commit_platforms_and_jobs(
+        self, check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """What the gate records, so a release note never restates it by hand.
 
         Asserted here rather than in the notes generator for the reason the notes were
@@ -503,8 +529,8 @@ class TestTheCommandLine:
         }
 
     def test_a_platform_that_failed_is_recorded_as_empty_not_as_absent(
-        self, check, tmp_path, monkeypatch
-    ):
+        self, check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Absence and failure are different claims, so the record keeps both."""
         report = tmp_path / "reports" / "platforms.json"
         jobs = [
@@ -525,8 +551,12 @@ class TestTheCommandLine:
         assert payload["facts"]["platforms"]["ubuntu-latest"] == ["py3.10", "py3.13"]
 
     def test_a_report_that_cannot_be_written_is_not_a_failed_verdict(
-        self, check, tmp_path, monkeypatch, capsys
-    ):
+        self,
+        check: ModuleType,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         """It costs a release-note row; it does not overturn a verdict."""
         blocker = tmp_path / "file"
         blocker.write_text("", encoding="utf-8")
@@ -541,8 +571,12 @@ class TestTheCommandLine:
         assert "could not write the report" in capsys.readouterr().err
 
     def test_the_required_platforms_can_be_narrowed_from_the_command_line(
-        self, check, tmp_path, capsys, monkeypatch
-    ):
+        self,
+        check: ModuleType,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """`--require` is what lets the promise be checked without editing the file."""
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: "b" * 40)
         monkeypatch.setattr(check, "repo_slug", lambda root: "owner/name")
@@ -553,7 +587,9 @@ class TestTheCommandLine:
         assert check.main(["--root", str(tmp_path), "--require", "freebsd-latest"]) == 1
         assert "freebsd-latest" in capsys.readouterr().out
 
-    def test_it_only_reads(self, check, tmp_path, monkeypatch):
+    def test_it_only_reads(
+        self, check: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """No `git`/`gh` write command exists in this script, and none may appear.
 
         The check reports; the gate decides. A step that repaired what it found would

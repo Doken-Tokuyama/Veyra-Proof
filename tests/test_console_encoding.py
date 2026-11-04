@@ -139,7 +139,7 @@ def _text(completed: subprocess.CompletedProcess[bytes]) -> str:
     return both.decode(WINDOWS_PIPE_ENCODING, errors="backslashreplace")
 
 
-def test_the_fan_out_report_survives_a_console_that_cannot_encode_it(tmp_path) -> None:
+def test_the_fan_out_report_survives_a_console_that_cannot_encode_it(tmp_path: Path) -> None:
     """A healthy ``--check`` is the run every Windows contributor makes, every day.
 
     It is also the run that used to die: the note for a link that *is* the canonical
@@ -160,7 +160,7 @@ def test_the_fan_out_report_survives_a_console_that_cannot_encode_it(tmp_path) -
     assert "all targets in sync" in out
 
 
-def test_a_path_the_console_cannot_encode_is_escaped_not_fatal(tmp_path) -> None:
+def test_a_path_the_console_cannot_encode_is_escaped_not_fatal(tmp_path: Path) -> None:
     """The other half of the rule: a path this script was handed is not a crash.
 
     ``--root`` and ``--home`` are the user's to choose, and a home directory spelling a

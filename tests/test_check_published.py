@@ -39,6 +39,8 @@ import tarfile
 import threading
 import zipfile
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -52,7 +54,7 @@ SDIST = f"veyra_proof-{VERSION}.tar.gz"
 
 
 @pytest.fixture()
-def check():
+def check() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_published", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -108,7 +110,7 @@ SDIST_PAYLOAD = {
 class Index:
     """A real index on loopback, serving one release and its files."""
 
-    def __init__(self, release: dict | None = None, files: dict[str, bytes] | None = None):
+    def __init__(self, release: dict | None = None, files: dict[str, bytes] | None = None) -> None:
         self.release = release
         self.files = files or {}
         self.requests: list[str] = []
@@ -132,7 +134,7 @@ class Index:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def log_message(self, *args) -> None:
+            def log_message(self, *args: Any) -> None:
                 """Quiet: a test that prints an access log is a test hard to read."""
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -192,7 +194,7 @@ def dist(tmp_path: Path) -> Path:
     return root
 
 
-def _run(check, root: Path, host: str, *extra: str, report: Path | None = None):
+def _run(check: ModuleType, root: Path, host: str, *extra: str, report: Path | None = None) -> Any:
     argv = ["--root", str(root), "--index-url", host, *extra]
     if report is not None:
         argv += ["--report", str(report)]
@@ -237,7 +239,9 @@ def _mismatched_index(*, version: str = VERSION) -> Index:
     return index
 
 
-def test_the_published_payload_is_compared_member_by_member(check, dist, tmp_path) -> None:
+def test_the_published_payload_is_compared_member_by_member(
+    check: ModuleType, dist: Path, tmp_path: Path
+) -> None:
     """The claim: same members, same content — while the archives differ, as they do.
 
     Two builds of one commit are not byte-identical (a zip stores each member's
@@ -267,7 +271,9 @@ def test_the_published_payload_is_compared_member_by_member(check, dist, tmp_pat
     assert by_name[SDIST]["identical_members"] == len(SDIST_PAYLOAD)
 
 
-def test_a_member_whose_content_differs_fails_and_names_it(check, dist, tmp_path, capsys) -> None:
+def test_a_member_whose_content_differs_fails_and_names_it(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The failure this step exists for: the index serves something else."""
     served = dict(PAYLOAD)
     served["veyra_proof/cli.py"] = b"# not the tool this gate checked\n"
@@ -289,7 +295,9 @@ def test_a_member_whose_content_differs_fails_and_names_it(check, dist, tmp_path
     assert entry["identical_members"] == len(PAYLOAD) - 1
 
 
-def test_a_member_only_the_index_has_fails(check, dist, tmp_path, capsys) -> None:
+def test_a_member_only_the_index_has_fails(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A file the gate never saw is worse than a changed one: nothing checked it."""
     served = {**PAYLOAD, "veyra_proof/extra.py": b"# nobody checked this\n"}
     index = Index(files={f"/files/{WHEEL}": _zip(served)})
@@ -304,7 +312,9 @@ def test_a_member_only_the_index_has_fails(check, dist, tmp_path, capsys) -> Non
     assert "veyra_proof/extra.py is in the file the index serves" in out
 
 
-def test_a_served_file_this_checkout_cannot_show_fails(check, dist, tmp_path, capsys) -> None:
+def test_a_served_file_this_checkout_cannot_show_fails(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The name is the pairing rule: a differently built artifact is a different one."""
     other = f"veyra_proof-{VERSION}-cp314-cp314-macosx_11_0_arm64.whl"
     index = Index(files={f"/files/{other}": _zip(PAYLOAD)})
@@ -321,7 +331,7 @@ def test_a_served_file_this_checkout_cannot_show_fails(check, dist, tmp_path, ca
 
 
 def test_a_version_the_index_does_not_have_passes_and_says_so(
-    check, dist, tmp_path, capsys
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Publishing happens after the gate, so this is the normal answer at tag time.
 
@@ -344,7 +354,9 @@ def test_a_version_the_index_does_not_have_passes_and_says_so(
     assert facts["reason"] == "the index has no files for this version yet"
 
 
-def test_a_yanked_file_is_recorded_as_yanked(check, dist, tmp_path, capsys) -> None:
+def test_a_yanked_file_is_recorded_as_yanked(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Yanked means pip will not install it, so the claim needs the word in it."""
     index = Index(files={f"/files/{WHEEL}": _zip(PAYLOAD, when=5)})
     index.release = index.release_payload([WHEEL], yanked=True)
@@ -359,7 +371,9 @@ def test_a_yanked_file_is_recorded_as_yanked(check, dist, tmp_path, capsys) -> N
     assert _facts(report)["facts"]["files"][0]["yanked"] is True
 
 
-def test_byte_identity_is_reported_when_it_holds(check, dist, tmp_path, capsys) -> None:
+def test_byte_identity_is_reported_when_it_holds(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The stronger claim, stated only when it is true rather than implied by the row."""
     wheel_bytes = (dist / "dist" / WHEEL).read_bytes()
     index = Index(files={f"/files/{WHEEL}": wheel_bytes})
@@ -375,7 +389,9 @@ def test_byte_identity_is_reported_when_it_holds(check, dist, tmp_path, capsys) 
     assert _facts(report)["facts"]["files"][0]["archive_identical"] is True
 
 
-def test_an_index_that_cannot_be_asked_is_not_a_pass(check, dist, tmp_path, capsys) -> None:
+def test_an_index_that_cannot_be_asked_is_not_a_pass(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """An unverifiable release is left unproven, the policy `platforms` already applies."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -390,7 +406,9 @@ def test_an_index_that_cannot_be_asked_is_not_a_pass(check, dist, tmp_path, caps
     assert "unproven rather than assumed" in captured.err
 
 
-def test_both_spellings_of_an_index_url_ask_the_same_question(check, dist, tmp_path) -> None:
+def test_both_spellings_of_an_index_url_ask_the_same_question(
+    check: ModuleType, dist: Path, tmp_path: Path
+) -> None:
     """pip calls it `…/simple`; the JSON API hangs off the host. Accept both."""
     index = Index(files={f"/files/{WHEEL}": _zip(PAYLOAD, when=3)})
     index.release = index.release_payload([WHEEL])
@@ -403,7 +421,9 @@ def test_both_spellings_of_an_index_url_ask_the_same_question(check, dist, tmp_p
     assert index.requests == [f"/pypi/{DIST_NAME}/{VERSION}/json", f"/files/{WHEEL}"]
 
 
-def test_a_digest_that_does_not_describe_the_file_is_caught(check, dist, tmp_path, capsys) -> None:
+def test_a_digest_that_does_not_describe_the_file_is_caught(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The index's own digest is checked against the bytes it served.
 
     Otherwise a mirror serving a corrupt body with a stale digest would pass on the
@@ -423,7 +443,7 @@ def test_a_digest_that_does_not_describe_the_file_is_caught(check, dist, tmp_pat
 
 
 def test_an_artifact_that_cannot_be_read_is_a_failure_not_a_skip(
-    check, dist, tmp_path, capsys
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A file this check cannot open cannot be compared, so it cannot be cleared."""
     (dist / "dist" / WHEEL).write_bytes(b"not an archive at all\n")
@@ -439,7 +459,9 @@ def test_an_artifact_that_cannot_be_read_is_a_failure_not_a_skip(
     assert "cannot be read as a wheel" in out
 
 
-def test_a_missing_pyproject_is_misuse(check, tmp_path, capsys) -> None:
+def test_a_missing_pyproject_is_misuse(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Exit 2 means the check could not run, which is not a verdict about an index."""
     bare = tmp_path / "bare"
     bare.mkdir()
@@ -450,7 +472,9 @@ def test_a_missing_pyproject_is_misuse(check, tmp_path, capsys) -> None:
     assert "cannot read the project name and version" in capsys.readouterr().err
 
 
-def test_a_tree_that_is_not_the_released_one_says_so(check, dist, tmp_path, capsys) -> None:
+def test_a_tree_that_is_not_the_released_one_says_so(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The likeliest reason for a difference, and the one a rebuild cannot fix.
 
     v0.5.0 is the real case: the version was published, work continued, and the
@@ -476,7 +500,7 @@ def test_a_tree_that_is_not_the_released_one_says_so(check, dist, tmp_path, caps
 
 
 def test_a_difference_on_the_released_tree_is_not_explained_away(
-    check, dist, tmp_path, capsys
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """With no tag to blame, both readings are named and neither is claimed."""
     # The fixture's checkout is committed, but no v9.9.9 tag exists anywhere.
@@ -494,7 +518,7 @@ def test_a_difference_on_the_released_tree_is_not_explained_away(
     )
 
 
-def test_it_runs_as_a_script(dist, tmp_path) -> None:
+def test_it_runs_as_a_script(dist: Path, tmp_path: Path) -> None:
     """The gate invokes it as a subprocess, so that path is the one to check."""
     index = Index(
         files={
@@ -528,7 +552,9 @@ def test_it_runs_as_a_script(dist, tmp_path) -> None:
     assert _facts(report)["facts"]["files_compared"] == 2
 
 
-def test_the_commit_tree_is_the_blobs_not_an_archive_of_rewritten_line_endings(check, dist) -> None:
+def test_the_commit_tree_is_the_blobs_not_an_archive_of_rewritten_line_endings(
+    check: ModuleType, dist: Path
+) -> None:
     """`git archive` is not the commit when line endings are rewritten on the way out.
 
     GitHub's Windows runners set `core.autocrlf=true`; archive output then carries CRLF
@@ -552,7 +578,7 @@ def test_the_commit_tree_is_the_blobs_not_an_archive_of_rewritten_line_endings(c
 
 
 def test_the_published_files_are_traced_to_the_released_commit(
-    check, dist, tmp_path, capsys
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Provenance: which commit the world is installing, and how it was named."""
     index = Index(
@@ -584,7 +610,7 @@ def test_the_published_files_are_traced_to_the_released_commit(
 
 
 def test_a_file_built_from_another_commit_fails_even_when_the_gate_checked_it(
-    check, dist, tmp_path, capsys
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The failure provenance exists for, isolated from payload equality.
 
@@ -612,7 +638,9 @@ def test_a_file_built_from_another_commit_fails_even_when_the_gate_checked_it(
     assert entry["provenance"]["proven"] is False
 
 
-def test_a_member_the_released_commit_does_not_have_fails(check, dist, tmp_path, capsys) -> None:
+def test_a_member_the_released_commit_does_not_have_fails(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A file nobody reviewed is worse than a changed one, and says so."""
     extra = {**PAYLOAD, "veyra_proof/extra.py": b"# nobody checked this\n"}
     (dist / "dist" / WHEEL).write_bytes(_zip(extra, when=1))
@@ -629,7 +657,7 @@ def test_a_member_the_released_commit_does_not_have_fails(check, dist, tmp_path,
 
 
 def test_a_package_file_the_published_files_do_not_ship_fails(
-    check, dist, tmp_path, capsys
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The stale build: every member it has is the release's own — it just has fewer.
 
@@ -658,7 +686,9 @@ def test_a_package_file_the_published_files_do_not_ship_fails(
     assert "a stale build from a commit other than the one being released" in out
 
 
-def test_the_tag_decides_which_commit_is_being_released(check, dist, tmp_path, capsys) -> None:
+def test_the_tag_decides_which_commit_is_being_released(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The release is the tag's commit, not wherever the tree has wandered since.
 
     Everything here agrees — this checkout built and checked the very files the index
@@ -687,7 +717,9 @@ def test_the_tag_decides_which_commit_is_being_released(check, dist, tmp_path, c
     assert facts["files"][0]["provenance"]["differing_members"] == ["veyra_proof/cli.py"]
 
 
-def test_commit_names_the_commit_being_released(check, dist, tmp_path, capsys) -> None:
+def test_commit_names_the_commit_being_released(
+    check: ModuleType, dist: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`--commit` is for the caller who already knows — and an unnameable one is misuse,
     not a verdict."""
     subprocess.run(["git", "tag", f"v{VERSION}"], cwd=dist, check=True, capture_output=True)
@@ -724,7 +756,9 @@ def test_commit_names_the_commit_being_released(check, dist, tmp_path, capsys) -
     assert "names no commit" in capsys.readouterr().err
 
 
-def test_when_git_cannot_say_which_commit_the_step_is_unproven(check, tmp_path, capsys) -> None:
+def test_when_git_cannot_say_which_commit_the_step_is_unproven(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A matching payload is not a provenance.
 
     Without a commit to compare against the question cannot be answered, and an

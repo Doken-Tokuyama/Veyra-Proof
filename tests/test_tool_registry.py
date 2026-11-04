@@ -1,7 +1,7 @@
 from veyra_proof.tool_registry import select_tools
 
 
-def test_profile_quick_selection():
+def test_profile_quick_selection() -> None:
     tools = select_tools("quick")
     ids = [t.id for t in tools]
     assert "clippy" in ids
@@ -10,7 +10,7 @@ def test_profile_quick_selection():
     assert "mutants" not in ids
 
 
-def test_include_exclude():
+def test_include_exclude() -> None:
     tools = select_tools(
         "standard",
         include=["clippy", "rustfmt", "miri"],

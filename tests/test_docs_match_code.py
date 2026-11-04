@@ -54,7 +54,7 @@ def _documented(profile: str, _seen: set[str] | None = None) -> str:
 
 
 class TestProfilesAreDocumentedTruthfully:
-    def test_the_two_profile_sources_agree(self):
+    def test_the_two_profile_sources_agree(self) -> None:
         """`PROFILE_ORDER` selects; `default_profiles` is published.
 
         They were independent lists and had already drifted: `reproducible-build`
@@ -65,7 +65,7 @@ class TestProfilesAreDocumentedTruthfully:
 
         assert profile_mismatches() == []
 
-    def test_every_tool_in_a_profile_is_named_in_that_row(self):
+    def test_every_tool_in_a_profile_is_named_in_that_row(self) -> None:
         """A tool silently excluded from its profile is a promise the code breaks."""
         for profile in ("quick", "standard", "hardened"):
             row = _documented(profile)
@@ -76,21 +76,21 @@ class TestProfilesAreDocumentedTruthfully:
                     f"{tool.id} runs in {profile} but the README row does not name it: {row}"
                 )
 
-    def test_reproducible_build_really_is_part_of_hardened(self):
+    def test_reproducible_build_really_is_part_of_hardened(self) -> None:
         from veyra_proof.tool_registry import tool_by_id
 
         assert "hardened" in tool_by_id()["reproducible-build"].default_profiles
         assert "reproducible-build" in _profile_row("hardened")
 
-    def test_the_reproducible_cost_escape_hatch_is_documented(self):
+    def test_the_reproducible_cost_escape_hatch_is_documented(self) -> None:
         assert "--exclude reproducible-build" in _readme()
 
-    def test_no_tool_is_claimed_for_a_profile_it_does_not_belong_to(self):
+    def test_no_tool_is_claimed_for_a_profile_it_does_not_belong_to(self) -> None:
         row = _documented("quick")
         assert "miri" not in row
         assert "reproducible-build" not in row
 
-    def test_hardened_actually_runs_the_reproducible_check(self):
+    def test_hardened_actually_runs_the_reproducible_check(self) -> None:
         """The registry promise is only meaningful if selection honours it."""
         from veyra_proof.tool_registry import select_tools
 
@@ -101,17 +101,17 @@ class TestProfilesAreDocumentedTruthfully:
 
 
 class TestSafetyTableIsReal:
-    def test_the_lockfile_rule_is_stated(self):
+    def test_the_lockfile_rule_is_stated(self) -> None:
         readme = _readme()
         assert "Rewrite `Cargo.lock` during a run" in readme
         assert "--locked" in readme
 
-    def test_the_nightly_fallback_is_stated(self):
+    def test_the_nightly_fallback_is_stated(self) -> None:
         readme = _readme()
         assert "Nightly-only targets" in readme
         assert "INCONCLUSIVE" in readme
 
-    def test_the_heuristic_policy_table_lists_every_blocking_rule(self):
+    def test_the_heuristic_policy_table_lists_every_blocking_rule(self) -> None:
         row = _readme()
         assert "VT001" in row and "VT002" in row
         for knob in (
@@ -125,31 +125,31 @@ class TestSafetyTableIsReal:
         ):
             assert knob in row, f"{knob} is not documented"
 
-    def test_fail_on_none_is_described_honestly(self):
+    def test_fail_on_none_is_described_honestly(self) -> None:
         readme = _readme()
         assert "--fail-on none" in readme
         assert "cannot excuse" in readme
 
-    def test_the_time_reporting_is_documented(self):
+    def test_the_time_reporting_is_documented(self) -> None:
         readme = _readme()
         assert "## Time" in readme or "`timing`" in readme
         assert "Where the time goes" in readme
         assert "does not cache" in readme or "not cache" in readme
 
-    def test_the_reproducible_policy_knob_is_documented(self):
+    def test_the_reproducible_policy_knob_is_documented(self) -> None:
         readme = _readme()
         assert "require_reproducible_build" in readme
         assert "--exclude reproducible-build" in readme
 
 
 class TestNoRottenCounts:
-    def test_the_ci_table_does_not_hardcode_a_test_count(self):
+    def test_the_ci_table_does_not_hardcode_a_test_count(self) -> None:
         readme = _readme()
         assert not re.search(r"\b\d+-test suite\b", readme), (
             "the README pins a test count that goes stale the moment one is added"
         )
 
-    def test_the_evidence_check_documents_its_argument_as_a_workspace(self):
+    def test_the_evidence_check_documents_its_argument_as_a_workspace(self) -> None:
         readme = _readme()
         assert "ci_assert_evidence.py <workspace-path>" in readme
         assert "not an evidence directory" in readme
@@ -163,20 +163,20 @@ class TestTheLimitsAreWrittenDown:
     reader has to be told, or the tool gets used for something it cannot do.
     """
 
-    def test_the_blind_spot_of_the_heuristics_is_stated(self):
+    def test_the_blind_spot_of_the_heuristics_is_stated(self) -> None:
         readme = " ".join(_readme().split())
         assert "written to look finished" in readme
         assert "will pass `quick` with exit 0" in readme
 
-    def test_the_answer_is_named_rather_than_left_implicit(self):
+    def test_the_answer_is_named_rather_than_left_implicit(self) -> None:
         readme = _readme()
         assert "`veyra-e2e` is the layer that catches it" in readme
 
-    def test_the_line_parsing_weakness_is_disclosed(self):
+    def test_the_line_parsing_weakness_is_disclosed(self) -> None:
         readme = _readme()
         assert "line-based" in readme
 
-    def test_everything_the_readme_still_promises_is_still_true(self):
+    def test_everything_the_readme_still_promises_is_still_true(self) -> None:
         """No promise in the README may be one the tool cannot keep."""
         from veyra_proof.tool_registry import all_tools
 
@@ -188,7 +188,7 @@ class TestTheLimitsAreWrittenDown:
             assert rule in readme, f"{rule} promised in the README but undocumented"
         assert all(t.id for t in all_tools())
 
-    def test_ci_assert_evidence_rejects_an_evidence_directory(self, tmp_path):
+    def test_ci_assert_evidence_rejects_an_evidence_directory(self, tmp_path: Path) -> None:
         """Documented shape is a workspace; handing it evidence must fail loudly."""
         import importlib.util
 
@@ -225,7 +225,7 @@ class TestTheReportedVersionIsThePublishedOne:
     documents.
     """
 
-    def test_the_module_version_matches_pyproject(self):
+    def test_the_module_version_matches_pyproject(self) -> None:
         pyproject = README.parent / "pyproject.toml"
         declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 
@@ -236,7 +236,7 @@ class TestTheReportedVersionIsThePublishedOne:
             f"{declared}: bump both, or the CLI and its evidence misname the version"
         )
 
-    def test_the_skill_version_matches_pyproject(self):
+    def test_the_skill_version_matches_pyproject(self) -> None:
         """Both copies of the skill carry the number, so both are checked."""
         pyproject = README.parent / "pyproject.toml"
         declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
@@ -255,7 +255,7 @@ class TestTheReportedVersionIsThePublishedOne:
                 "the skill would document a release that is not the one shipping"
             )
 
-    def test_the_cli_reports_the_module_version(self):
+    def test_the_cli_reports_the_module_version(self) -> None:
         """The string a user reads has to be the one the package is installed as."""
         from veyra_proof import __version__
 

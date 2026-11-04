@@ -10,6 +10,7 @@ Those are exactly the paths where "the tool failed" can turn into an ``OK``.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from veyra_proof.config import (
     CodeQLConfig,
@@ -48,7 +49,14 @@ class ScriptedRunner:
         self.results = list(results)
         self.calls: list[list[str]] = []
 
-    def run(self, command, cwd=None, timeout=None, env=None, input_text=None) -> CommandResult:
+    def run(
+        self,
+        command: list[str],
+        cwd: Any = None,
+        timeout: Any = None,
+        env: Any = None,
+        input_text: Any = None,
+    ) -> CommandResult:
         self.calls.append(list(command))
         return self.results[min(len(self.calls) - 1, len(self.results) - 1)]
 
@@ -143,7 +151,7 @@ def make_context(
 # --- cargo-fuzz -----------------------------------------------------------
 
 
-def test_fuzz_without_a_fuzz_directory_skips_before_running(tmp_path) -> None:
+def test_fuzz_without_a_fuzz_directory_skips_before_running(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=["parse"]))
 
@@ -153,7 +161,7 @@ def test_fuzz_without_a_fuzz_directory_skips_before_running(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_fuzz_without_declared_targets_refuses_to_invent_them(tmp_path) -> None:
+def test_fuzz_without_declared_targets_refuses_to_invent_them(tmp_path: Path) -> None:
     (tmp_path / "fuzz").mkdir()
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=[]))
@@ -165,7 +173,7 @@ def test_fuzz_without_declared_targets_refuses_to_invent_them(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_fuzz_crash_is_a_blocker(tmp_path) -> None:
+def test_fuzz_crash_is_a_blocker(tmp_path: Path) -> None:
     (tmp_path / "fuzz").mkdir()
     runner = ScriptedRunner([result(exit_code=1, stderr="ERROR: libFuzzer: deadly signal\n")])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=["parse"]))
@@ -177,7 +185,7 @@ def test_fuzz_crash_is_a_blocker(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["fuzz-crash"]
 
 
-def test_fuzz_timeout_is_inconclusive(tmp_path) -> None:
+def test_fuzz_timeout_is_inconclusive(tmp_path: Path) -> None:
     (tmp_path / "fuzz").mkdir()
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=["parse"]))
@@ -188,7 +196,7 @@ def test_fuzz_timeout_is_inconclusive(tmp_path) -> None:
     assert tool_result.findings == []
 
 
-def test_fuzz_target_that_does_not_exist_is_skipped(tmp_path) -> None:
+def test_fuzz_target_that_does_not_exist_is_skipped(tmp_path: Path) -> None:
     (tmp_path / "fuzz").mkdir()
     runner = ScriptedRunner([result(exit_code=1, stderr="error: target `parse` does not exist\n")])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=["parse"]))
@@ -202,7 +210,7 @@ def test_fuzz_target_that_does_not_exist_is_skipped(tmp_path) -> None:
 # --- kani -----------------------------------------------------------------
 
 
-def test_kani_without_harnesses_skips_before_running(tmp_path) -> None:
+def test_kani_without_harnesses_skips_before_running(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner)
 
@@ -212,7 +220,7 @@ def test_kani_without_harnesses_skips_before_running(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_kani_counterexample_is_findings(tmp_path) -> None:
+def test_kani_counterexample_is_findings(tmp_path: Path) -> None:
     source = tmp_path / "src"
     source.mkdir()
     (source / "lib.rs").write_text("#[kani::proof]\nfn proof() {}\n", encoding="utf-8")
@@ -225,7 +233,7 @@ def test_kani_counterexample_is_findings(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["kani-counterexample"]
 
 
-def test_kani_timeout_is_inconclusive(tmp_path) -> None:
+def test_kani_timeout_is_inconclusive(tmp_path: Path) -> None:
     source = tmp_path / "src"
     source.mkdir()
     (source / "lib.rs").write_text("#[kani::proof]\nfn proof() {}\n", encoding="utf-8")
@@ -240,7 +248,7 @@ def test_kani_timeout_is_inconclusive(tmp_path) -> None:
 # --- cargo-llvm-cov -------------------------------------------------------
 
 
-def test_llvm_cov_below_the_configured_minimum_is_findings(tmp_path) -> None:
+def test_llvm_cov_below_the_configured_minimum_is_findings(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(), result(stdout="lines......: 50.00%\nbranches...: 40.00%\n")])
     ctx = make_context(tmp_path, runner, coverage=CoverageConfig(minimum_line_percent=90.0))
 
@@ -250,7 +258,7 @@ def test_llvm_cov_below_the_configured_minimum_is_findings(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["coverage-line-below-minimum"]
 
 
-def test_llvm_cov_unparsed_summary_is_not_silent(tmp_path) -> None:
+def test_llvm_cov_unparsed_summary_is_not_silent(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(), result(stdout="no percentages here\n")])
     ctx = make_context(tmp_path, runner, coverage=CoverageConfig(minimum_line_percent=90.0))
 
@@ -261,7 +269,7 @@ def test_llvm_cov_unparsed_summary_is_not_silent(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["coverage-line-unparsed"]
 
 
-def test_llvm_cov_uses_nextest_when_it_is_available(tmp_path) -> None:
+def test_llvm_cov_uses_nextest_when_it_is_available(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(), result(stdout="lines: 100%\n")])
     ctx = make_context(tmp_path, runner)
 
@@ -277,7 +285,7 @@ def test_llvm_cov_uses_nextest_when_it_is_available(tmp_path) -> None:
     assert tool_result.status == "OK"
 
 
-def test_llvm_cov_timeout_is_inconclusive(tmp_path) -> None:
+def test_llvm_cov_timeout_is_inconclusive(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(), result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner)
 
@@ -289,7 +297,7 @@ def test_llvm_cov_timeout_is_inconclusive(tmp_path) -> None:
 # --- cargo-mutants --------------------------------------------------------
 
 
-def test_mutants_without_paths_skips_before_running(tmp_path) -> None:
+def test_mutants_without_paths_skips_before_running(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner, mutants=MutantsConfig(paths=[]))
 
@@ -299,7 +307,7 @@ def test_mutants_without_paths_skips_before_running(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_mutants_survivor_is_findings(tmp_path) -> None:
+def test_mutants_survivor_is_findings(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(stdout="MISSED  src/lib.rs:12:5\n")])
     ctx = make_context(tmp_path, runner, mutants=MutantsConfig(paths=["src/lib.rs"]))
 
@@ -309,7 +317,7 @@ def test_mutants_survivor_is_findings(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["mutant-survived"]
 
 
-def test_mutants_timeout_is_inconclusive(tmp_path) -> None:
+def test_mutants_timeout_is_inconclusive(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner, mutants=MutantsConfig(paths=["src/lib.rs"]))
 
@@ -321,7 +329,7 @@ def test_mutants_timeout_is_inconclusive(tmp_path) -> None:
 # --- cargo-machete --------------------------------------------------------
 
 
-def test_machete_non_zero_exit_is_a_warning_finding(tmp_path) -> None:
+def test_machete_non_zero_exit_is_a_warning_finding(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=1, stdout="unused: serde\n")])
     ctx = make_context(tmp_path, runner)
 
@@ -332,7 +340,7 @@ def test_machete_non_zero_exit_is_a_warning_finding(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["unused-dependency"]
 
 
-def test_machete_timeout_is_inconclusive(tmp_path) -> None:
+def test_machete_timeout_is_inconclusive(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner)
 
@@ -341,7 +349,7 @@ def test_machete_timeout_is_inconclusive(tmp_path) -> None:
     assert tool_result.status == "INCONCLUSIVE"
 
 
-def test_machete_detection_falls_back_to_help_when_version_is_rejected(tmp_path) -> None:
+def test_machete_detection_falls_back_to_help_when_version_is_rejected(tmp_path: Path) -> None:
     runner = ScriptedRunner(
         [
             result(exit_code=2, stderr="error: unexpected argument '--version' found\n"),
@@ -363,7 +371,7 @@ def test_machete_detection_falls_back_to_help_when_version_is_rejected(tmp_path)
 # --- miri -----------------------------------------------------------------
 
 
-def test_miri_error_is_findings(tmp_path) -> None:
+def test_miri_error_is_findings(tmp_path: Path) -> None:
     runner = ScriptedRunner(
         [result(exit_code=1, stderr="error: Undefined Behavior: out-of-bounds\n")]
     )
@@ -375,7 +383,7 @@ def test_miri_error_is_findings(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["miri-ub"]
 
 
-def test_miri_timeout_is_inconclusive(tmp_path) -> None:
+def test_miri_timeout_is_inconclusive(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner)
 
@@ -387,7 +395,7 @@ def test_miri_timeout_is_inconclusive(tmp_path) -> None:
 # --- cargo-deny -----------------------------------------------------------
 
 
-def test_deny_diagnostics_are_parsed_into_findings(tmp_path) -> None:
+def test_deny_diagnostics_are_parsed_into_findings(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=1, stdout="error[unlicensed]: missing license\n")])
     ctx = make_context(tmp_path, runner)
 
@@ -398,7 +406,7 @@ def test_deny_diagnostics_are_parsed_into_findings(tmp_path) -> None:
     assert tool_result.findings[0].file == "Cargo.toml"
 
 
-def test_deny_failure_without_diagnostics_still_reports_a_finding(tmp_path) -> None:
+def test_deny_failure_without_diagnostics_still_reports_a_finding(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=1, stderr="some unrelated failure\n")])
     ctx = make_context(tmp_path, runner)
 
@@ -408,7 +416,7 @@ def test_deny_failure_without_diagnostics_still_reports_a_finding(tmp_path) -> N
     assert [f.rule for f in tool_result.findings] == ["cargo-deny-violation"]
 
 
-def test_deny_timeout_is_inconclusive(tmp_path) -> None:
+def test_deny_timeout_is_inconclusive(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner)
 
@@ -420,7 +428,7 @@ def test_deny_timeout_is_inconclusive(tmp_path) -> None:
 # --- dylint / vet / external types ---------------------------------------
 
 
-def test_dylint_without_configuration_skips_before_running(tmp_path) -> None:
+def test_dylint_without_configuration_skips_before_running(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner)
 
@@ -430,7 +438,7 @@ def test_dylint_without_configuration_skips_before_running(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_dylint_findings_are_reported(tmp_path) -> None:
+def test_dylint_findings_are_reported(tmp_path: Path) -> None:
     (tmp_path / "dylint.toml").write_text("", encoding="utf-8")
     runner = ScriptedRunner([result(exit_code=1, stderr="lint fired\n")])
     ctx = make_context(tmp_path, runner)
@@ -441,7 +449,7 @@ def test_dylint_findings_are_reported(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["dylint-finding"]
 
 
-def test_vet_findings_are_reported(tmp_path) -> None:
+def test_vet_findings_are_reported(tmp_path: Path) -> None:
     supply_chain = tmp_path / "supply-chain"
     supply_chain.mkdir()
     (supply_chain / "config.toml").write_text("", encoding="utf-8")
@@ -454,7 +462,7 @@ def test_vet_findings_are_reported(tmp_path) -> None:
     assert [f.rule for f in tool_result.findings] == ["vet-unreviewed"]
 
 
-def test_external_types_without_libraries_skips_before_running(tmp_path) -> None:
+def test_external_types_without_libraries_skips_before_running(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(
         tmp_path,
@@ -475,7 +483,7 @@ def test_external_types_without_libraries_skips_before_running(tmp_path) -> None
     assert runner.calls == []
 
 
-def test_external_types_timeout_is_inconclusive(tmp_path) -> None:
+def test_external_types_timeout_is_inconclusive(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner)
 
@@ -487,7 +495,7 @@ def test_external_types_timeout_is_inconclusive(tmp_path) -> None:
 # --- optional SAST --------------------------------------------------------
 
 
-def test_semgrep_is_never_run_without_explicit_inclusion(tmp_path) -> None:
+def test_semgrep_is_never_run_without_explicit_inclusion(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner)
 
@@ -497,7 +505,7 @@ def test_semgrep_is_never_run_without_explicit_inclusion(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_semgrep_refuses_to_run_without_local_rules(tmp_path) -> None:
+def test_semgrep_refuses_to_run_without_local_rules(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner, include=["semgrep"])
 
@@ -508,7 +516,7 @@ def test_semgrep_refuses_to_run_without_local_rules(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_semgrep_failure_is_not_ok(tmp_path) -> None:
+def test_semgrep_failure_is_not_ok(tmp_path: Path) -> None:
     (tmp_path / ".semgrep.yml").write_text("rules: []\n", encoding="utf-8")
     runner = ScriptedRunner([result(exit_code=1, stderr="error: rule failed\n")])
     ctx = make_context(tmp_path, runner, include=["semgrep"])
@@ -518,7 +526,7 @@ def test_semgrep_failure_is_not_ok(tmp_path) -> None:
     assert tool_result.status == "ERROR"
 
 
-def test_codeql_is_never_run_without_explicit_inclusion(tmp_path) -> None:
+def test_codeql_is_never_run_without_explicit_inclusion(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner)
 
@@ -528,7 +536,7 @@ def test_codeql_is_never_run_without_explicit_inclusion(tmp_path) -> None:
     assert runner.calls == []
 
 
-def test_codeql_runs_against_a_local_database_when_configured(tmp_path) -> None:
+def test_codeql_runs_against_a_local_database_when_configured(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=0)])
     ctx = make_context(
         tmp_path,
@@ -567,7 +575,7 @@ def test_parse_deny_output_reads_crlf_output() -> None:
     assert findings[0].explanation == "missing license"
 
 
-def test_cargo_test_reports_a_failure_captured_with_crlf(tmp_path) -> None:
+def test_cargo_test_reports_a_failure_captured_with_crlf(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=101, stdout="test add ... FAILED\r\n")])
     ctx = make_context(tmp_path, runner)
 

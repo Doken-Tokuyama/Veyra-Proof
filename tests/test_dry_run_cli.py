@@ -1,10 +1,15 @@
+from pathlib import Path
+from typing import Any
+
+import pytest
+
 from veyra_proof.cli import main
 from veyra_proof.command_runner import CommandRunner
 from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo
 
 
-def test_dry_run_audit(monkeypatch, tmp_path):
+def test_dry_run_audit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / "ws"
     root.mkdir()
     (root / "Cargo.toml").write_text(
@@ -47,7 +52,7 @@ def test_dry_run_audit(monkeypatch, tmp_path):
 
     executed = []
 
-    def fake_run(self, command, **kwargs):
+    def fake_run(self: Any, command: list[str], **kwargs: Any) -> Any:
         executed.append(list(command))
         return CommandResult(command, str(root), 0, "", "", 0.0)
 

@@ -1,12 +1,15 @@
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from veyra_proof.command_runner import CommandRunner
 from veyra_proof.models import CommandResult
 from veyra_proof.workspace import WorkspaceError, resolve_workspace
 
 
-def test_resolve_workspace_from_metadata(tmp_path, monkeypatch):
+def test_resolve_workspace_from_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = tmp_path / "demo"
     root.mkdir()
     (root / "Cargo.toml").write_text(
@@ -18,7 +21,7 @@ def test_resolve_workspace_from_metadata(tmp_path, monkeypatch):
     sample["workspace_root"] = str(root)
     sample["target_directory"] = str(root / "target")
 
-    def fake_run(self, command, **kwargs):
+    def fake_run(self: Any, command: list[str], **kwargs: Any) -> Any:
         assert command[:2] == ["cargo", "metadata"]
         return CommandResult(
             command=command,
@@ -35,7 +38,7 @@ def test_resolve_workspace_from_metadata(tmp_path, monkeypatch):
     assert info.packages[0]["name"] == "demo"
 
 
-def test_missing_cargo_toml(tmp_path):
+def test_missing_cargo_toml(tmp_path: Path) -> None:
     try:
         resolve_workspace(tmp_path, CommandRunner(dry_run=True))
         raise AssertionError("expected WorkspaceError")

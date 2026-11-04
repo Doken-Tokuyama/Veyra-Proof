@@ -4,10 +4,11 @@
   rules over `src`, `tests` and `scripts`, and `mypy` checks `src/veyra_proof`,
   `tests` and `scripts`, including unannotated function bodies. `ruff format
   --check` enforces one formatting for the same tree, and `disallow_untyped_defs`
-  makes a missing annotation in `src` or `scripts` an error; test helpers stay
-  under `check_untyped_defs` until their fixtures are annotated. Everything runs
-  in a dedicated CI job and through an opt-in pre-commit hook, so a lint, format
-  or type regression fails the same commit that introduced it.
+  makes a missing annotation anywhere in `src`, `tests` or `scripts` an error.
+  Pytest fixture values with dynamic shapes are typed as `Any` at the fixture
+  boundary. Everything runs in a dedicated CI job and through an opt-in
+  pre-commit hook, so a lint, format or type regression fails the same commit
+  that introduced it.
 
 ## What changed in v0.7.2
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Any
 
 from veyra_proof.config import PolicyConfig, SemverConfig, VeyraConfig, load_veyra_config
 from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
@@ -29,7 +30,14 @@ class ScriptedRunner:
         self.results = list(results)
         self.calls: list[list[str]] = []
 
-    def run(self, command, cwd=None, timeout=None, env=None, input_text=None) -> CommandResult:
+    def run(
+        self,
+        command: list[str],
+        cwd: Any = None,
+        timeout: Any = None,
+        env: Any = None,
+        input_text: Any = None,
+    ) -> CommandResult:
         self.calls.append(list(command))
         return self.results[min(len(self.calls) - 1, len(self.results) - 1)]
 
@@ -101,7 +109,7 @@ def make_context(
     )
 
 
-def test_geiger_virtual_manifest_runs_per_package_with_manifest_path(tmp_path) -> None:
+def test_geiger_virtual_manifest_runs_per_package_with_manifest_path(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(), result()])
     ctx = make_context(tmp_path, runner)
 
@@ -116,7 +124,7 @@ def test_geiger_virtual_manifest_runs_per_package_with_manifest_path(tmp_path) -
     assert tool_result.environment["geiger_runs"] == "2"
 
 
-def test_geiger_with_root_package_keeps_plain_invocation(tmp_path) -> None:
+def test_geiger_with_root_package_keeps_plain_invocation(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(tmp_path, runner, root_package={"name": "root"})
 
@@ -127,7 +135,7 @@ def test_geiger_with_root_package_keeps_plain_invocation(tmp_path) -> None:
     assert tool_result.environment["virtual_workspace"] == "no"
 
 
-def test_geiger_aggregates_failures_across_packages(tmp_path) -> None:
+def test_geiger_aggregates_failures_across_packages(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=101), result(exit_code=0)])
     ctx = make_context(tmp_path, runner)
 
@@ -137,7 +145,7 @@ def test_geiger_aggregates_failures_across_packages(tmp_path) -> None:
     assert "exit 101" in tool_result.summary
 
 
-def test_geiger_coverage_warnings_are_inconclusive_not_error(tmp_path) -> None:
+def test_geiger_coverage_warnings_are_inconclusive_not_error(tmp_path: Path) -> None:
     """Scan completed but some dependency files were not scanned/parsed: the
     unsafe inventory is a lower bound, so this can never be OK nor ERROR."""
     runner = ScriptedRunner(
@@ -165,7 +173,7 @@ def test_geiger_coverage_warnings_are_inconclusive_not_error(tmp_path) -> None:
     assert tool_result.environment["coverage_warning_runs"] == "1"
 
 
-def test_geiger_compile_error_is_still_error_even_with_warning_text(tmp_path) -> None:
+def test_geiger_compile_error_is_still_error_even_with_warning_text(tmp_path: Path) -> None:
     """A real compile failure must not be masked as a coverage warning."""
     runner = ScriptedRunner(
         [
@@ -187,7 +195,7 @@ def test_geiger_compile_error_is_still_error_even_with_warning_text(tmp_path) ->
     assert "exit 101" in tool_result.summary
 
 
-def test_geiger_deny_unsafe_violation_outranks_coverage_warnings(tmp_path) -> None:
+def test_geiger_deny_unsafe_violation_outranks_coverage_warnings(tmp_path: Path) -> None:
     """A definite deny_unsafe violation is a FINDINGS even with coverage gaps."""
     runner = ScriptedRunner(
         [
@@ -206,7 +214,7 @@ def test_geiger_deny_unsafe_violation_outranks_coverage_warnings(tmp_path) -> No
     assert [f.rule for f in tool_result.findings] == ["unsafe-usage"]
 
 
-def test_geiger_empty_run_output_with_exit_1_is_error(tmp_path) -> None:
+def test_geiger_empty_run_output_with_exit_1_is_error(tmp_path: Path) -> None:
     """exit 1 without the FoundWarningsError signature stays ERROR."""
     runner = ScriptedRunner([result(exit_code=1, stderr="some unrelated failure\n")])
     ctx = make_context(tmp_path, runner)
@@ -219,7 +227,7 @@ def test_geiger_empty_run_output_with_exit_1_is_error(tmp_path) -> None:
 GEIGER_UNSAFE_OUTPUT = "Functions using unsafe: 3 / 10\nExpressions using unsafe: 7 / 40\n"
 
 
-def test_geiger_deny_unsafe_still_reports_findings(tmp_path) -> None:
+def test_geiger_deny_unsafe_still_reports_findings(tmp_path: Path) -> None:
     runner = ScriptedRunner(
         [
             result(stdout=GEIGER_UNSAFE_OUTPUT),
@@ -249,7 +257,7 @@ VIOLATION_OUTPUT = (
 )
 
 
-def test_semver_unpublished_crate_is_skipped_with_reason_not_findings(tmp_path) -> None:
+def test_semver_unpublished_crate_is_skipped_with_reason_not_findings(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=100, stderr=NO_BASELINE_OUTPUT)])
     ctx = make_context(tmp_path, runner)
 
@@ -261,7 +269,7 @@ def test_semver_unpublished_crate_is_skipped_with_reason_not_findings(tmp_path) 
     assert tool_result.findings == []
 
 
-def test_semver_configured_git_baseline_is_passed_to_the_tool(tmp_path) -> None:
+def test_semver_configured_git_baseline_is_passed_to_the_tool(tmp_path: Path) -> None:
     runner = ScriptedRunner([result()])
     ctx = make_context(
         tmp_path,
@@ -294,7 +302,7 @@ BAD_BASELINE_OUTPUT = (
 )
 
 
-def test_semver_unresolvable_baseline_is_an_error_not_a_violation(tmp_path) -> None:
+def test_semver_unresolvable_baseline_is_an_error_not_a_violation(tmp_path: Path) -> None:
     """Measured against cargo-semver-checks 0.50.0: an unknown --baseline-rev exits
     101 with "couldn't parse revision". Reporting that as semver-violation would
     accuse the crate of an API break over a typo in `veyra.toml`, and the log would
@@ -310,7 +318,7 @@ def test_semver_unresolvable_baseline_is_an_error_not_a_violation(tmp_path) -> N
     assert "101" in tool_result.summary
 
 
-def test_semver_non_zero_exit_without_breakage_markers_is_an_error(tmp_path) -> None:
+def test_semver_non_zero_exit_without_breakage_markers_is_an_error(tmp_path: Path) -> None:
     """A rejected flag likewise observed no breaking change."""
     runner = ScriptedRunner(
         [result(exit_code=2, stderr="error: unexpected argument '--release-type' found\n")]
@@ -323,7 +331,7 @@ def test_semver_non_zero_exit_without_breakage_markers_is_an_error(tmp_path) -> 
     assert tool_result.findings == []
 
 
-def test_semver_baseline_is_loaded_from_veyra_toml(tmp_path) -> None:
+def test_semver_baseline_is_loaded_from_veyra_toml(tmp_path: Path) -> None:
     (tmp_path / "veyra.toml").write_text(
         '[semver]\nbaseline = "v0.9.1"\nrelease_type = "patch"\n',
         encoding="utf-8",
@@ -335,7 +343,7 @@ def test_semver_baseline_is_loaded_from_veyra_toml(tmp_path) -> None:
     assert config.semver.release_type == "patch"
 
 
-def test_every_evidence_log_is_pinned_by_its_digest(tmp_path) -> None:
+def test_every_evidence_log_is_pinned_by_its_digest(tmp_path: Path) -> None:
     """A verdict rests on its logs, so the digest of each has to travel with it:
     an edited log then fails verification instead of passing quietly."""
     runner = ScriptedRunner([result(stdout="0/0  0/0  0/0  0/0  0/0  :)\n")])
@@ -348,7 +356,7 @@ def test_every_evidence_log_is_pinned_by_its_digest(tmp_path) -> None:
         assert tool_result.artifact_hashes[name] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_a_skipped_tool_pins_the_reason_and_the_output(tmp_path) -> None:
+def test_a_skipped_tool_pins_the_reason_and_the_output(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=100, stderr=NO_BASELINE_OUTPUT)])
     ctx = make_context(tmp_path, runner)
 
@@ -359,7 +367,7 @@ def test_a_skipped_tool_pins_the_reason_and_the_output(tmp_path) -> None:
         assert tool_result.artifact_hashes[name] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path) -> None:
+def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path: Path) -> None:
     """The skip reason must not overwrite what the command actually printed.
 
     The skip was classified *from* that output, so erasing it leaves a verdict
@@ -384,7 +392,7 @@ def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path) -> Non
     assert tool_result.environment["skip_reason_path"] == str(reason)
 
 
-def test_skip_without_running_records_the_reason_as_the_log(tmp_path) -> None:
+def test_skip_without_running_records_the_reason_as_the_log(tmp_path: Path) -> None:
     """A tool that skipped before running anything has no output to keep, so the
     reason is all there is to log."""
     runner = ScriptedRunner([result()])
@@ -400,7 +408,7 @@ def test_skip_without_running_records_the_reason_as_the_log(tmp_path) -> None:
     assert Path(tool_result.stdout_path).read_text(encoding="utf-8").strip() == tool_result.summary
 
 
-def test_semver_real_violation_is_findings_even_with_cannot_in_lint_name(tmp_path) -> None:
+def test_semver_real_violation_is_findings_even_with_cannot_in_lint_name(tmp_path: Path) -> None:
     runner = ScriptedRunner([result(exit_code=100, stdout=VIOLATION_OUTPUT)])
     ctx = make_context(tmp_path, runner)
 

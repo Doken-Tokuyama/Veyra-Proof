@@ -1,10 +1,12 @@
+from pathlib import Path
+
 from veyra_proof.hashing import compare_snapshots, snapshot_project_files
 from veyra_proof.installer import confirm_installs
 from veyra_proof.models import InstallPlan, InstallStep
 from veyra_proof.reporting import classify_project_changes
 
 
-def test_hash_and_change_detection(tmp_path):
+def test_hash_and_change_detection(tmp_path: Path) -> None:
     (tmp_path / "Cargo.toml").write_text("[package]\nname='x'\n", encoding="utf-8")
     before = snapshot_project_files(tmp_path)
     (tmp_path / "Cargo.toml").write_text("[package]\nname='y'\n", encoding="utf-8")
@@ -13,7 +15,7 @@ def test_hash_and_change_detection(tmp_path):
     assert any(c["path"] == "Cargo.toml" and c["change"] == "modified" for c in changes)
 
 
-def test_lockfile_creation_not_unauthorized():
+def test_lockfile_creation_not_unauthorized() -> None:
     changes = [
         {"path": "Cargo.lock", "change": "created", "before_sha256": None, "after_sha256": "abc"}
     ]
@@ -27,7 +29,7 @@ def test_lockfile_creation_not_unauthorized():
     assert annotated[0]["authorization"] == "informational_cargo_side_effect"
 
 
-def test_lockfile_modification_unauthorized_without_flag():
+def test_lockfile_modification_unauthorized_without_flag() -> None:
     changes = [
         {"path": "Cargo.lock", "change": "modified", "before_sha256": "a", "after_sha256": "b"}
     ]
@@ -40,7 +42,7 @@ def test_lockfile_modification_unauthorized_without_flag():
     assert "Cargo.lock" in unauthorized
 
 
-def test_confirm_installs_yes():
+def test_confirm_installs_yes() -> None:
     plan = InstallPlan(
         "clippy",
         "clippy",
@@ -51,7 +53,7 @@ def test_confirm_installs_yes():
     assert confirm_installs([plan], yes=True) is True
 
 
-def test_confirm_installs_no():
+def test_confirm_installs_no() -> None:
     plan = InstallPlan(
         "clippy",
         "clippy",

@@ -10,6 +10,7 @@ lock exists, nothing added when it does not, and the plan saying what will run.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,29 +24,29 @@ def _lock(root: Path) -> Path:
 
 
 class TestApplyLockPolicy:
-    def test_locked_is_added_when_a_lockfile_exists(self, tmp_path):
+    def test_locked_is_added_when_a_lockfile_exists(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         argv = apply_lock_policy(["cargo", "check", "--workspace"], cwd=tmp_path)
         assert argv == ["cargo", "check", "--locked", "--workspace"]
 
-    def test_nothing_is_added_without_a_lockfile(self, tmp_path):
+    def test_nothing_is_added_without_a_lockfile(self, tmp_path: Path) -> None:
         # `--locked` on a project with no lock makes cargo refuse to build, so
         # the flag may only ever follow the file's existence.
         argv = apply_lock_policy(["cargo", "check", "--workspace"], cwd=tmp_path)
         assert argv == ["cargo", "check", "--workspace"]
 
-    def test_authorized_updates_leave_the_command_alone(self, tmp_path):
+    def test_authorized_updates_leave_the_command_alone(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         argv = apply_lock_policy(["cargo", "check", "--workspace"], cwd=tmp_path, allow_update=True)
         assert argv == ["cargo", "check", "--workspace"]
 
-    def test_a_flag_that_already_decides_is_not_duplicated(self, tmp_path):
+    def test_a_flag_that_already_decides_is_not_duplicated(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         for flag in ("--locked", "--frozen", "--offline"):
             argv = apply_lock_policy(["cargo", "build", flag, "--release"], cwd=tmp_path)
             assert argv == ["cargo", "build", flag, "--release"]
 
-    def test_version_probes_are_not_locked(self, tmp_path):
+    def test_version_probes_are_not_locked(self, tmp_path: Path) -> None:
         # A probe builds nothing. `cargo nextest --version` rejects the flag at
         # the top level (exit 2), so detection reported an installed
         # cargo-nextest as "not installed" on any workspace with a lockfile.
@@ -57,27 +58,27 @@ class TestApplyLockPolicy:
         ):
             assert apply_lock_policy(argv, cwd=tmp_path) == argv
 
-    def test_version_flags_after_the_harness_separator_still_lock(self, tmp_path):
+    def test_version_flags_after_the_harness_separator_still_lock(self, tmp_path: Path) -> None:
         # `cargo test -- --version` filters tests by that name; it still builds.
         _lock(tmp_path)
         argv = apply_lock_policy(["cargo", "test", "--workspace", "--", "--version"], cwd=tmp_path)
         assert argv == ["cargo", "test", "--locked", "--workspace", "--", "--version"]
 
-    def test_plugin_shape_keeps_its_own_subcommand(self, tmp_path):
+    def test_plugin_shape_keeps_its_own_subcommand(self, tmp_path: Path) -> None:
         # `cargo nextest run --workspace` would break if the flag were inserted
         # between the plugin and its subcommand.
         _lock(tmp_path)
         argv = apply_lock_policy(["cargo", "nextest", "run", "--workspace"], cwd=tmp_path)
         assert argv == ["cargo", "nextest", "run", "--locked", "--workspace"]
 
-    def test_flag_lands_before_trailing_test_harness_args(self, tmp_path):
+    def test_flag_lands_before_trailing_test_harness_args(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         argv = apply_lock_policy(
             ["cargo", "test", "--workspace", "--", "--nocapture"], cwd=tmp_path
         )
         assert argv == ["cargo", "test", "--locked", "--workspace", "--", "--nocapture"]
 
-    def test_bare_command_gets_the_flag_appended(self, tmp_path):
+    def test_bare_command_gets_the_flag_appended(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         assert apply_lock_policy(["cargo", "build"], cwd=tmp_path) == [
             "cargo",
@@ -85,7 +86,7 @@ class TestApplyLockPolicy:
             "--locked",
         ]
 
-    def test_read_only_subcommands_are_never_touched(self, tmp_path):
+    def test_read_only_subcommands_are_never_touched(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         for argv in (
             ["cargo", "metadata", "--format-version", "1"],
@@ -97,24 +98,28 @@ class TestApplyLockPolicy:
         ):
             assert apply_lock_policy(argv, cwd=tmp_path) == argv
 
-    def test_non_cargo_commands_are_untouched(self, tmp_path):
+    def test_non_cargo_commands_are_untouched(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         for argv in (["rustc", "--version"], ["semgrep", "--version"], ["cargo.exe"]):
             assert apply_lock_policy(argv, cwd=tmp_path) == argv
 
-    def test_toolchain_override_is_skipped_when_finding_the_subcommand(self, tmp_path):
+    def test_toolchain_override_is_skipped_when_finding_the_subcommand(
+        self, tmp_path: Path
+    ) -> None:
         _lock(tmp_path)
         argv = apply_lock_policy(["cargo", "+nightly", "build", "--release"], cwd=tmp_path)
         assert argv == ["cargo", "+nightly", "build", "--locked", "--release"]
 
-    def test_windows_executable_name_is_recognised(self, tmp_path):
+    def test_windows_executable_name_is_recognised(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         argv = apply_lock_policy([str(Path("C:/cargo/bin/cargo.EXE")), "check"], cwd=tmp_path)
         assert argv == [str(Path("C:/cargo/bin/cargo.EXE")), "check", "--locked"]
 
 
 class TestRunnerAppliesPolicy:
-    def test_the_argv_recorded_as_evidence_is_the_argv_executed(self, tmp_path, monkeypatch):
+    def test_the_argv_recorded_as_evidence_is_the_argv_executed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _lock(tmp_path)
         seen: list[list[str]] = []
 
@@ -123,7 +128,7 @@ class TestRunnerAppliesPolicy:
             stdout = ""
             stderr = ""
 
-        def fake_run(argv, **kwargs):
+        def fake_run(argv: list[str], **kwargs: Any) -> Any:
             seen.append(list(argv))
             return _Completed()
 
@@ -132,7 +137,7 @@ class TestRunnerAppliesPolicy:
         assert seen == [["cargo", "check", "--locked", "--workspace"]]
         assert result.command == ["cargo", "check", "--locked", "--workspace"]
 
-    def test_dry_run_reports_the_effective_argv(self, tmp_path):
+    def test_dry_run_reports_the_effective_argv(self, tmp_path: Path) -> None:
         _lock(tmp_path)
         result = CommandRunner(dry_run=True).run(["cargo", "test", "--workspace"], cwd=tmp_path)
         assert result.command == ["cargo", "test", "--locked", "--workspace"]
@@ -149,7 +154,7 @@ class TestUndecodableOutputIsStillCaptured:
     a child that emits a byte cp1252 cannot decode.
     """
 
-    def test_a_byte_the_locale_cannot_decode_does_not_lose_the_output(self, tmp_path):
+    def test_a_byte_the_locale_cannot_decode_does_not_lose_the_output(self, tmp_path: Path) -> None:
         import sys
 
         script = (
@@ -164,7 +169,7 @@ class TestUndecodableOutputIsStillCaptured:
         assert result.stdout.endswith("after")
         assert "\ufffd" in result.stdout
 
-    def test_the_same_holds_for_stderr(self, tmp_path):
+    def test_the_same_holds_for_stderr(self, tmp_path: Path) -> None:
         import sys
 
         script = "import sys; sys.stderr.buffer.write(b'\\x8f'); sys.exit(3)"
@@ -172,7 +177,9 @@ class TestUndecodableOutputIsStillCaptured:
         assert result.stderr is not None
         assert "\ufffd" in result.stderr
 
-    def test_streaming_capture_does_not_lose_it_either(self, tmp_path, capsys):
+    def test_streaming_capture_does_not_lose_it_either(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         import sys
 
         script = "import sys; sys.stdout.buffer.write(b'\\x8f'); sys.exit(0)"
@@ -245,7 +252,9 @@ class TestToolsDeclareTheirEffectiveCommand:
             ("reproducible-build", ["cargo", "build"]),
         ],
     )
-    def test_planned_commands_carry_the_lock_flag(self, tool_id, expected_head, tmp_path):
+    def test_planned_commands_carry_the_lock_flag(
+        self, tool_id: str, expected_head: list[str], tmp_path: Path
+    ) -> None:
         _lock(tmp_path)
         cmds = self._planned(tool_id, tmp_path)
         assert cmds, f"{tool_id} plans no command"
@@ -253,7 +262,7 @@ class TestToolsDeclareTheirEffectiveCommand:
         assert first[: len(expected_head)] == expected_head
         assert "--locked" in first, f"{tool_id} would build without --locked: {first}"
 
-    def test_no_cargo_build_plans_without_the_lock_flag(self, tmp_path):
+    def test_no_cargo_build_plans_without_the_lock_flag(self, tmp_path: Path) -> None:
         from veyra_proof.tool_registry import all_tools
 
         _lock(tmp_path)

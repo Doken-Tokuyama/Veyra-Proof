@@ -12,6 +12,9 @@ reports the truth instead of being skipped.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from veyra_proof.config import PolicyConfig, VeyraConfig
 from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
@@ -27,7 +30,14 @@ class ScriptedRunner:
         self.result = result
         self.calls: list[list[str]] = []
 
-    def run(self, command, cwd=None, timeout=None, env=None, input_text=None) -> CommandResult:
+    def run(
+        self,
+        command: list[str],
+        cwd: Any = None,
+        timeout: Any = None,
+        env: Any = None,
+        input_text: Any = None,
+    ) -> CommandResult:
         self.calls.append(list(command))
         return self.result
 
@@ -85,7 +95,7 @@ def make_context(tmp_path: Path, runner: ScriptedRunner) -> AuditContext:
     )
 
 
-def classify(tmp_path: Path, result: CommandResult):
+def classify(tmp_path: Path, result: CommandResult) -> Any:
     runner = ScriptedRunner(result)
     tool = NextestTool()
     return tool.detect_via_version(
@@ -95,14 +105,14 @@ def classify(tmp_path: Path, result: CommandResult):
     )
 
 
-def test_a_probe_that_answers_reports_installed_with_its_version(tmp_path):
+def test_a_probe_that_answers_reports_installed_with_its_version(tmp_path: Path) -> None:
     det = classify(tmp_path, probe(exit_code=0, stdout="cargo-nextest 0.9.84\n"))
     assert det.status == "INSTALLED"
     assert det.available is True
     assert det.version == "cargo-nextest 0.9.84"
 
 
-def test_an_oserror_is_absent_not_broken(tmp_path):
+def test_an_oserror_is_absent_not_broken(tmp_path: Path) -> None:
     # Nothing to exec: the binary genuinely is not there.
     det = classify(
         tmp_path, probe(exit_code=None, error="FileNotFoundError: [Errno 2] No such file")
@@ -112,14 +122,14 @@ def test_an_oserror_is_absent_not_broken(tmp_path):
     assert "not installed" in det.message
 
 
-def test_cargo_no_such_command_is_absent_not_broken(tmp_path):
+def test_cargo_no_such_command_is_absent_not_broken(tmp_path: Path) -> None:
     # cargo ran but the subcommand is not installed — also absence, not breakage.
     det = classify(tmp_path, probe(exit_code=101, stderr="error: no such command: `nextest`\n"))
     assert det.status == "MISSING"
     assert det.available is False
 
 
-def test_a_probe_that_ran_and_failed_is_present_not_missing(tmp_path):
+def test_a_probe_that_ran_and_failed_is_present_not_missing(tmp_path: Path) -> None:
     # The exact regression: an installed tool, a rejected probe, exit 2.
     det = classify(
         tmp_path,
@@ -131,14 +141,16 @@ def test_a_probe_that_ran_and_failed_is_present_not_missing(tmp_path):
     assert "is installed but" in det.message
 
 
-def test_a_timed_out_probe_is_present_not_missing(tmp_path):
+def test_a_timed_out_probe_is_present_not_missing(tmp_path: Path) -> None:
     det = classify(tmp_path, probe(exit_code=None, timed_out=True, error="timeout after 20s"))
     assert det.status != "MISSING"
     assert det.available is True
     assert "timed out" in det.message
 
 
-def test_nextest_detect_does_not_call_an_installed_tool_missing(tmp_path, monkeypatch):
+def test_nextest_detect_does_not_call_an_installed_tool_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # End to end through the tool: the --locked probe rejection must not make
     # detect() report a present cargo-nextest as not installed.
     monkeypatch.setattr("veyra_proof.tools.nextest.shutil.which", lambda name: "/usr/bin/cargo")

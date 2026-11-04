@@ -18,6 +18,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -35,7 +36,7 @@ OWNER = "a" * 64
 REVISION = "b" * 64
 
 
-def _load(path: Path, name: str):
+def _load(path: Path, name: str) -> ModuleType:
     """Import a script that is not a package module."""
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -46,12 +47,12 @@ def _load(path: Path, name: str):
 
 
 @pytest.fixture()
-def check():
+def check() -> ModuleType:
     return _load(CHECK_SCRIPT, "check_account_skill")
 
 
 @pytest.fixture()
-def sync():
+def sync() -> ModuleType:
     return _load(SYNC_SCRIPT, "sync_skill")
 
 
@@ -111,7 +112,7 @@ def _tree(store: Path) -> dict[str, str]:
     }
 
 
-def _run(check, store: Path, capsys) -> tuple[int, str]:
+def _run(check: ModuleType, store: Path, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
     code = check.main(["--store", str(store)])
     return code, capsys.readouterr().out
 
@@ -121,7 +122,7 @@ def _run(check, store: Path, capsys) -> tuple[int, str]:
 # --------------------------------------------------------------------------
 
 
-def test_constants_match_the_fan_out_script(check, sync) -> None:
+def test_constants_match_the_fan_out_script(check: ModuleType, sync: ModuleType) -> None:
     """Two scripts that disagree about what the skill is called check nothing."""
     assert check.SKILL_NAME == sync.SKILL_NAME
     assert check.CANONICAL_REL == sync.CANONICAL_REL
@@ -133,7 +134,9 @@ def test_constants_match_the_fan_out_script(check, sync) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_a_matching_store_is_current(check, tmp_path, capsys) -> None:
+def test_a_matching_store_is_current(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store = _write_store(tmp_path / "store", _canonical())
 
     code, out = _run(check, store, capsys)
@@ -143,7 +146,9 @@ def test_a_matching_store_is_current(check, tmp_path, capsys) -> None:
     assert "OLDER" not in out and "DIFFERS" not in out
 
 
-def test_a_stale_cloud_snapshot_is_reported_older(check, tmp_path, capsys) -> None:
+def test_a_stale_cloud_snapshot_is_reported_older(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The defect this script exists for: Cloud serving the pre-0.4.0 text."""
     stale = dict(_canonical())
     stale["SKILL.md"] = _version(stale["SKILL.md"], "0.4.0")
@@ -157,7 +162,9 @@ def test_a_stale_cloud_snapshot_is_reported_older(check, tmp_path, capsys) -> No
     assert "SKILL.md (differs" in out
 
 
-def test_a_newer_or_unordered_version_is_not_called_older(check, tmp_path, capsys) -> None:
+def test_a_newer_or_unordered_version_is_not_called_older(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """'Older' is a claim about versions; a different one is only a difference."""
     ahead = dict(_canonical())
     ahead["SKILL.md"] = _version(ahead["SKILL.md"], "0.9.9")
@@ -170,7 +177,9 @@ def test_a_newer_or_unordered_version_is_not_called_older(check, tmp_path, capsy
     assert "OLDER" not in out
 
 
-def test_a_dropped_version_is_older_not_merely_different(check, tmp_path, capsys) -> None:
+def test_a_dropped_version_is_older_not_merely_different(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The real pre-0.4.0 text declared no version at all."""
     without = dict(_canonical())
     without["SKILL.md"] = re.sub(r'(?m)^\s*version:\s*"[^"]+"\n', "", without["SKILL.md"])
@@ -183,7 +192,9 @@ def test_a_dropped_version_is_older_not_merely_different(check, tmp_path, capsys
     assert "account no metadata.version" in out
 
 
-def test_a_missing_resource_is_reported(check, tmp_path, capsys) -> None:
+def test_a_missing_resource_is_reported(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     files = _canonical()
     del files["reference.md"]
     store = _write_store(tmp_path / "store", files)
@@ -195,7 +206,7 @@ def test_a_missing_resource_is_reported(check, tmp_path, capsys) -> None:
 
 
 def test_a_stale_projection_is_reported_even_when_the_snapshot_matches(
-    check, tmp_path, capsys
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A projection can lag its own snapshot; an agent reads the projection."""
     store = _write_store(tmp_path / "store", _canonical())
@@ -208,7 +219,9 @@ def test_a_stale_projection_is_reported_even_when_the_snapshot_matches(
     assert str(Path(OWNER) / REVISION / SKILL_NAME) in out
 
 
-def test_a_projection_with_an_extra_file_is_reported(check, tmp_path, capsys) -> None:
+def test_a_projection_with_an_extra_file_is_reported(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store = _write_store(tmp_path / "store", _canonical())
     (store / OWNER / REVISION / SKILL_NAME / "notes.md").write_text("x", encoding="utf-8")
 
@@ -218,7 +231,9 @@ def test_a_projection_with_an_extra_file_is_reported(check, tmp_path, capsys) ->
     assert "only here: notes.md" in out
 
 
-def test_absent_store_is_not_drift(check, tmp_path, capsys) -> None:
+def test_absent_store_is_not_drift(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A machine without the app is not a machine with a stale skill."""
     code, out = _run(check, tmp_path / "nope", capsys)
 
@@ -226,7 +241,9 @@ def test_absent_store_is_not_drift(check, tmp_path, capsys) -> None:
     assert "no account store" in out
 
 
-def test_a_store_holding_no_copy_of_this_skill_is_not_drift(check, tmp_path, capsys) -> None:
+def test_a_store_holding_no_copy_of_this_skill_is_not_drift(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store = tmp_path / "store"
     (store / OWNER).mkdir(parents=True)
     (store / OWNER / "current.json").write_text(
@@ -240,7 +257,9 @@ def test_a_store_holding_no_copy_of_this_skill_is_not_drift(check, tmp_path, cap
     assert "not in this snapshot" in out
 
 
-def test_a_missing_canonical_skill_is_a_usage_error_not_drift(check, tmp_path, capsys) -> None:
+def test_a_missing_canonical_skill_is_a_usage_error_not_drift(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Exit 1 means drift. A checker that cannot read the source has not found any.
 
     Reporting this as 1 would let a broken checkout wear the verdict of a stale
@@ -258,7 +277,9 @@ def test_a_missing_canonical_skill_is_a_usage_error_not_drift(check, tmp_path, c
     assert "OLDER" not in captured.out and "DIFFERS" not in captured.out
 
 
-def test_an_unreadable_snapshot_is_skipped_but_still_reported(check, tmp_path, capsys) -> None:
+def test_an_unreadable_snapshot_is_skipped_but_still_reported(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A corrupt cache is not a claim about the skill, so it cannot fail a check."""
     store = tmp_path / "store"
     (store / OWNER).mkdir(parents=True)
@@ -275,7 +296,9 @@ def test_an_unreadable_snapshot_is_skipped_but_still_reported(check, tmp_path, c
 # --------------------------------------------------------------------------
 
 
-def test_the_check_writes_nothing_to_the_store(check, tmp_path, capsys) -> None:
+def test_the_check_writes_nothing_to_the_store(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The store belongs to the app; a check that wrote would be a fan-out."""
     stale = dict(_canonical())
     stale["SKILL.md"] = _version(stale["SKILL.md"], "0.4.0")
@@ -288,7 +311,9 @@ def test_the_check_writes_nothing_to_the_store(check, tmp_path, capsys) -> None:
     assert _tree(store) == before, "the check modified the store it was inspecting"
 
 
-def test_the_remedy_is_stated_when_drift_is_found(check, tmp_path, capsys) -> None:
+def test_the_remedy_is_stated_when_drift_is_found(
+    check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A report that cannot be acted on is noise."""
     stale = dict(_canonical())
     stale["SKILL.md"] = _version(stale["SKILL.md"], "0.4.0")

@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Any
+
 from veyra_proof.config import PolicyConfig
 from veyra_proof.models import Finding, ToolResult
 from veyra_proof.reporting import decide, render_markdown
@@ -10,7 +13,7 @@ from veyra_proof.tools.base import (
 )
 
 
-def _result(tool_id, status, findings=None, severity="info"):
+def _result(tool_id: str, status: Any, findings: Any = None, severity: Any = "info") -> Any:
     now = utc_now_iso()
     return ToolResult(
         tool_id=tool_id,
@@ -29,13 +32,13 @@ def _result(tool_id, status, findings=None, severity="info"):
     )
 
 
-def test_decision_accepted():
+def test_decision_accepted() -> None:
     results = [_result("clippy", "OK"), _result("rustfmt", "OK")]
     d = decide(results, fail_on="findings", required_tool_ids=["clippy", "rustfmt"])
     assert d.decision == "ACCEPTED"
 
 
-def test_decision_intentional_skip_not_required():
+def test_decision_intentional_skip_not_required() -> None:
     """Config-gated tools skipped intentionally must not block ACCEPTED."""
     results = [
         _result("clippy", "OK"),
@@ -68,14 +71,14 @@ def test_decision_intentional_skip_not_required():
     assert d.decision == "ACCEPTED"
 
 
-def test_decision_rejected_on_findings():
+def test_decision_rejected_on_findings() -> None:
     findings = [Finding("x", "error", "high", "a.rs", 1, None, "bad", "fix")]
     results = [_result("clippy", "FINDINGS", findings, "error")]
     d = decide(results, fail_on="findings", required_tool_ids=["clippy"])
     assert d.decision == "REJECTED"
 
 
-def test_decision_inconclusive_missing():
+def test_decision_inconclusive_missing() -> None:
     d = decide(
         [],
         fail_on="findings",
@@ -85,7 +88,7 @@ def test_decision_inconclusive_missing():
     assert d.decision == "INCONCLUSIVE"
 
 
-def test_ok_never_for_timeout_classification():
+def test_ok_never_for_timeout_classification() -> None:
     status, _, _ = classify_from_command(
         timed_out=True,
         exit_code=None,
@@ -97,7 +100,7 @@ def test_ok_never_for_timeout_classification():
     assert status == "INCONCLUSIVE"
 
 
-def test_ok_never_for_nonzero_without_analysis():
+def test_ok_never_for_nonzero_without_analysis() -> None:
     status, _, _ = classify_from_command(
         timed_out=False,
         exit_code=2,
@@ -109,7 +112,7 @@ def test_ok_never_for_nonzero_without_analysis():
     assert status != "OK"
 
 
-def test_parse_clippy():
+def test_parse_clippy() -> None:
     text = "error[clippy::foo]: bad thing\n  --> src/lib.rs:10:5\n"
     findings = parse_clippy_output(text)
     assert findings
@@ -117,7 +120,7 @@ def test_parse_clippy():
     assert findings[0].line == 10
 
 
-def test_parse_deny_unlicensed():
+def test_parse_deny_unlicensed() -> None:
     from veyra_proof.tools.deny import parse_deny_output
 
     text = (
@@ -129,13 +132,13 @@ def test_parse_deny_unlicensed():
     assert any(f.rule == "deny:no-license-field" for f in findings)
 
 
-def test_parse_test_failures():
+def test_parse_test_failures() -> None:
     text = "test foo::bar ... FAILED\n"
     findings = parse_test_failures(text)
     assert findings[0].excerpt == "foo::bar"
 
 
-def test_anti_theater_todo(tmp_path):
+def test_anti_theater_todo(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
     (src / "lib.rs").write_text("pub fn x() { todo!() }\n", encoding="utf-8")
@@ -143,7 +146,7 @@ def test_anti_theater_todo(tmp_path):
     assert any(f.rule == "VT001" for f in findings)
 
 
-def test_anti_theater_panic_in_cfg_test_module_is_not_a_src_finding(tmp_path):
+def test_anti_theater_panic_in_cfg_test_module_is_not_a_src_finding(tmp_path: Path) -> None:
     """`panic!()` used as a test oracle inside `#[cfg(test)] mod tests` is not
     unfinished production error handling, even though the file lives in src/."""
     src = tmp_path / "src"
@@ -172,7 +175,7 @@ def test_anti_theater_panic_in_cfg_test_module_is_not_a_src_finding(tmp_path):
     assert vt003 == [], f"test-only panic! reported as production code: {vt003}"
 
 
-def test_anti_theater_panic_in_production_path_is_still_reported(tmp_path):
+def test_anti_theater_panic_in_production_path_is_still_reported(tmp_path: Path) -> None:
     """Exempting cfg(test) blocks must not blanket-exempt src/ files."""
     src = tmp_path / "src"
     src.mkdir()
@@ -189,7 +192,7 @@ def test_anti_theater_panic_in_production_path_is_still_reported(tmp_path):
     assert [f.line for f in findings if f.rule == "VT003"] == [3]
 
 
-def test_anti_theater_guard_clause_is_not_a_constant_stub(tmp_path):
+def test_anti_theater_guard_clause_is_not_a_constant_stub(tmp_path: Path) -> None:
     """An early `return 0;` guard is edge-case logic; only a body that *is* a
     literal is a placeholder, so the guard must not be read as one."""
     src = tmp_path / "src"
@@ -202,7 +205,7 @@ def test_anti_theater_guard_clause_is_not_a_constant_stub(tmp_path):
     assert [f.rule for f in findings if f.rule == "VT014"] == []
 
 
-def test_anti_theater_trivial_constant_body_is_still_reported(tmp_path):
+def test_anti_theater_trivial_constant_body_is_still_reported(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
     (src / "lib.rs").write_text("pub fn answer() -> i32 { 42 }\n", encoding="utf-8")
@@ -210,7 +213,7 @@ def test_anti_theater_trivial_constant_body_is_still_reported(tmp_path):
     assert [f.rule for f in findings if f.rule == "VT014"] == ["VT014"]
 
 
-def test_anti_theater_test_without_any_oracle_is_reported(tmp_path):
+def test_anti_theater_test_without_any_oracle_is_reported(tmp_path: Path) -> None:
     src = tmp_path / "src"
     src.mkdir()
     (src / "lib.rs").write_text(
@@ -227,7 +230,7 @@ def test_anti_theater_test_without_any_oracle_is_reported(tmp_path):
     assert [f.rule for f in findings if f.rule == "VT006"] == ["VT006"]
 
 
-def test_anti_theater_panicking_oracle_counts_as_an_oracle(tmp_path):
+def test_anti_theater_panicking_oracle_counts_as_an_oracle(tmp_path: Path) -> None:
     """A failed `unwrap`/`expect`/`panic!` makes the test fail observably, so
     the test does have an oracle even though it holds no `assert` macro."""
     src = tmp_path / "src"
@@ -247,7 +250,7 @@ def test_anti_theater_panicking_oracle_counts_as_an_oracle(tmp_path):
     assert [f.rule for f in findings if f.rule == "VT006"] == []
 
 
-def test_markdown_structure():
+def test_markdown_structure() -> None:
     md = render_markdown(
         workspace="/tmp/w",
         timestamp="t",

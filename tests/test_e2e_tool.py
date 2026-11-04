@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from veyra_proof.config import E2eConfig, E2eScenario, VeyraConfig, load_veyra_config
 from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
@@ -43,7 +44,16 @@ class FakeRunner:
         self.default = default
         self.calls: list[list[str]] = []
 
-    def run(self, command, *, cwd=None, timeout=None, env=None, input_text=None, **kwargs):
+    def run(
+        self,
+        command: list[str],
+        *,
+        cwd: Any = None,
+        timeout: Any = None,
+        env: Any = None,
+        input_text: Any = None,
+        **kwargs: Any,
+    ) -> Any:
         self.calls.append(list(command))
         if command[:2] == ["cargo", "build"]:
             return CommandResult(
@@ -156,18 +166,18 @@ def make_context(
     )
 
 
-def scenario(name: str = "happy path", argv: list[str] | None = None, **kwargs) -> E2eScenario:
+def scenario(name: str = "happy path", argv: list[str] | None = None, **kwargs: Any) -> E2eScenario:
     # A scenario that only says "exit 0" is reported as vacuous, so the default
     # here asserts the output the demo binary really produces.
     kwargs.setdefault("expect_stdout_regex", r"^3\n?$")
     return E2eScenario(name=name, argv=argv if argv is not None else ["add", "1", "2"], **kwargs)
 
 
-def rules(result) -> list[str]:
+def rules(result: Any) -> list[str]:
     return [f.rule for f in result.findings]
 
 
-def test_no_scenarios_is_skipped_and_never_claimed_ok(tmp_path) -> None:
+def test_no_scenarios_is_skipped_and_never_claimed_ok(tmp_path: Path) -> None:
     """Silence is not evidence: no declared journey means no verdict."""
     ctx = make_context(tmp_path, E2eConfig(), FakeRunner())
 
@@ -178,7 +188,7 @@ def test_no_scenarios_is_skipped_and_never_claimed_ok(tmp_path) -> None:
     assert "not verified" in result.summary
 
 
-def test_declared_scenarios_run_against_the_built_binary_and_pass(tmp_path) -> None:
+def test_declared_scenarios_run_against_the_built_binary_and_pass(tmp_path: Path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
 
@@ -195,7 +205,7 @@ def test_declared_scenarios_run_against_the_built_binary_and_pass(tmp_path) -> N
     assert "verdict=PASS" in log
 
 
-def test_build_uses_release_and_locked_when_declared(tmp_path) -> None:
+def test_build_uses_release_and_locked_when_declared(tmp_path: Path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()], build_profile="release"), runner)
 
@@ -205,7 +215,7 @@ def test_build_uses_release_and_locked_when_declared(tmp_path) -> None:
     assert "--locked" in runner.calls[0]
 
 
-def test_build_without_lockfile_does_not_ask_for_one(tmp_path) -> None:
+def test_build_without_lockfile_does_not_ask_for_one(tmp_path: Path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner, has_lockfile=False)
 
@@ -214,7 +224,7 @@ def test_build_without_lockfile_does_not_ask_for_one(tmp_path) -> None:
     assert "--locked" not in runner.calls[0]
 
 
-def test_wrong_exit_code_is_a_failure_that_quotes_what_was_observed(tmp_path) -> None:
+def test_wrong_exit_code_is_a_failure_that_quotes_what_was_observed(tmp_path: Path) -> None:
     observed = CommandResult(
         command=[], cwd="", exit_code=0, stdout="3\n", stderr="", duration_seconds=0.01
     )
@@ -232,7 +242,7 @@ def test_wrong_exit_code_is_a_failure_that_quotes_what_was_observed(tmp_path) ->
     assert "exited 0" in result.findings[0].explanation
 
 
-def test_missing_expected_output_is_a_failure_that_quotes_what_was_observed(tmp_path) -> None:
+def test_missing_expected_output_is_a_failure_that_quotes_what_was_observed(tmp_path: Path) -> None:
     observed = CommandResult(
         command=[], cwd="", exit_code=0, stdout="4\n", stderr="", duration_seconds=0.01
     )
@@ -255,7 +265,7 @@ def test_missing_expected_output_is_a_failure_that_quotes_what_was_observed(tmp_
     )
 
 
-def test_a_failure_scenario_that_succeeds_is_a_failure(tmp_path) -> None:
+def test_a_failure_scenario_that_succeeds_is_a_failure(tmp_path: Path) -> None:
     """Invalid input that exits 0 is exactly the theater this tool exists for."""
     observed = CommandResult(
         command=[], cwd="", exit_code=0, stdout="", stderr="", duration_seconds=0.01
@@ -284,7 +294,7 @@ def test_a_failure_scenario_that_succeeds_is_a_failure(tmp_path) -> None:
     assert "E2E01" in rules(result)
 
 
-def test_a_failure_scenario_with_an_explicit_exit_code_is_held_to_it(tmp_path) -> None:
+def test_a_failure_scenario_with_an_explicit_exit_code_is_held_to_it(tmp_path: Path) -> None:
     observed = CommandResult(
         command=[], cwd="", exit_code=3, stdout="", stderr="boom\n", duration_seconds=0.01
     )
@@ -314,7 +324,7 @@ def test_a_failure_scenario_with_an_explicit_exit_code_is_held_to_it(tmp_path) -
     assert "expects exit=2 on failure" in result.findings[0].explanation
 
 
-def test_a_scenario_that_asserts_nothing_is_vacuous_not_passing(tmp_path) -> None:
+def test_a_scenario_that_asserts_nothing_is_vacuous_not_passing(tmp_path: Path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
     ctx = make_context(
         tmp_path, E2eConfig(scenarios=[scenario(expect_exit=0, expect_stdout_regex=None)]), runner
@@ -327,7 +337,7 @@ def test_a_scenario_that_asserts_nothing_is_vacuous_not_passing(tmp_path) -> Non
     assert "would pass for a binary that only starts" in result.findings[0].explanation
 
 
-def test_expected_files_that_were_not_written_are_a_failure(tmp_path) -> None:
+def test_expected_files_that_were_not_written_are_a_failure(tmp_path: Path) -> None:
     observed = CommandResult(
         command=[], cwd="", exit_code=0, stdout="", stderr="", duration_seconds=0.01
     )
@@ -351,7 +361,7 @@ def test_expected_files_that_were_not_written_are_a_failure(tmp_path) -> None:
     assert "it was not created" in " ".join(f.explanation for f in result.findings)
 
 
-def test_expected_files_outside_the_sandbox_are_refused(tmp_path) -> None:
+def test_expected_files_outside_the_sandbox_are_refused(tmp_path: Path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
     ctx = make_context(
         tmp_path,
@@ -371,7 +381,7 @@ def test_expected_files_outside_the_sandbox_are_refused(tmp_path) -> None:
     )
 
 
-def test_a_failed_build_is_an_error_not_a_pass(tmp_path) -> None:
+def test_a_failed_build_is_an_error_not_a_pass(tmp_path: Path) -> None:
     runner = FakeRunner(build_exit=101, build_stderr="error: could not compile")
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
 
@@ -382,7 +392,7 @@ def test_a_failed_build_is_an_error_not_a_pass(tmp_path) -> None:
     assert len(runner.calls) == 1  # nothing was executed after the build failed
 
 
-def test_a_timeout_is_inconclusive_never_success_or_failure(tmp_path) -> None:
+def test_a_timeout_is_inconclusive_never_success_or_failure(tmp_path: Path) -> None:
     hung = CommandResult(
         command=[],
         cwd="",
@@ -406,7 +416,7 @@ def test_a_timeout_is_inconclusive_never_success_or_failure(tmp_path) -> None:
     assert "timed out" in result.summary
 
 
-def test_a_workspace_that_builds_no_binary_is_inconclusive(tmp_path) -> None:
+def test_a_workspace_that_builds_no_binary_is_inconclusive(tmp_path: Path) -> None:
     runner = FakeRunner(
         build_stdout=json.dumps(
             {
@@ -426,7 +436,7 @@ def test_a_workspace_that_builds_no_binary_is_inconclusive(tmp_path) -> None:
     assert len(runner.calls) == 1
 
 
-def test_declared_binaries_that_were_not_built_are_a_finding(tmp_path) -> None:
+def test_declared_binaries_that_were_not_built_are_a_finding(tmp_path: Path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE, name="other") + "\n")
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()], binaries=["demo"]), runner)
 
@@ -436,7 +446,7 @@ def test_declared_binaries_that_were_not_built_are_a_finding(tmp_path) -> None:
     assert "not produced by the build" in result.summary
 
 
-def test_dead_code_is_informational_and_never_blocks_the_verdict(tmp_path) -> None:
+def test_dead_code_is_informational_and_never_blocks_the_verdict(tmp_path: Path) -> None:
     stdout = artifact_line(tmp_path / EXE) + "\n" + warning_line("dead_code") + "\n"
     runner = FakeRunner(build_stdout=stdout)
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
@@ -448,7 +458,7 @@ def test_dead_code_is_informational_and_never_blocks_the_verdict(tmp_path) -> No
     assert all(f.severity == "info" for f in result.findings if f.rule == "E2E03")
 
 
-def test_dependency_warnings_are_not_attributed_to_the_workspace(tmp_path) -> None:
+def test_dependency_warnings_are_not_attributed_to_the_workspace(tmp_path: Path) -> None:
     stdout = (
         artifact_line(tmp_path / EXE)
         + "\n"
@@ -463,7 +473,7 @@ def test_dependency_warnings_are_not_attributed_to_the_workspace(tmp_path) -> No
     assert rules(result) == []
 
 
-def test_invalid_configuration_is_reported_instead_of_ignored(tmp_path) -> None:
+def test_invalid_configuration_is_reported_instead_of_ignored(tmp_path: Path) -> None:
     (tmp_path / "veyra.toml").write_text(
         "\n".join(
             [
@@ -485,7 +495,7 @@ def test_invalid_configuration_is_reported_instead_of_ignored(tmp_path) -> None:
     assert [s.name for s in config.e2e.scenarios] == ["broken"]
 
 
-def test_invalid_configuration_rejects_the_audit(tmp_path) -> None:
+def test_invalid_configuration_rejects_the_audit(tmp_path: Path) -> None:
     (tmp_path / "veyra.toml").write_text(
         '[[e2e.scenarios]]\nname = "broken"\nargv = ["run"]\nexpect_stdout_regex = "("\n',
         encoding="utf-8",
@@ -500,7 +510,7 @@ def test_invalid_configuration_rejects_the_audit(tmp_path) -> None:
     assert "E2ECFG" in rules(result)
 
 
-def test_expect_failure_without_an_exit_code_is_not_a_contradiction(tmp_path) -> None:
+def test_expect_failure_without_an_exit_code_is_not_a_contradiction(tmp_path: Path) -> None:
     """Regression: `expect_failure = true` alone means "any non-zero exit"."""
     (tmp_path / "veyra.toml").write_text(
         "[[e2e.scenarios]]\n"
@@ -517,7 +527,7 @@ def test_expect_failure_without_an_exit_code_is_not_a_contradiction(tmp_path) ->
     assert config.e2e.scenarios[0].expect_exit is None
 
 
-def test_explicit_zero_exit_with_expect_failure_is_rejected(tmp_path) -> None:
+def test_explicit_zero_exit_with_expect_failure_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "veyra.toml").write_text(
         "[[e2e.scenarios]]\n"
         'name = "contradiction"\n'
@@ -532,7 +542,7 @@ def test_explicit_zero_exit_with_expect_failure_is_rejected(tmp_path) -> None:
     assert any("contradicts" in error for error in config.e2e.errors)
 
 
-def test_duplicate_scenario_names_are_rejected(tmp_path) -> None:
+def test_duplicate_scenario_names_are_rejected(tmp_path: Path) -> None:
     (tmp_path / "veyra.toml").write_text(
         "[[e2e.scenarios]]\n"
         'name = "same"\n'

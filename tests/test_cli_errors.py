@@ -15,6 +15,7 @@ crashed", and somebody would go looking for the bug in the wrong program.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -44,7 +45,7 @@ def _platform() -> PlatformInfo:
     )
 
 
-def _workspace(root) -> WorkspaceInfo:
+def _workspace(root: Path) -> WorkspaceInfo:
     return WorkspaceInfo(
         path=str(root),
         workspace_root=str(root),
@@ -59,7 +60,7 @@ def _workspace(root) -> WorkspaceInfo:
     )
 
 
-def _stub_cli(monkeypatch, root) -> None:
+def _stub_cli(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     monkeypatch.setattr("veyra_proof.cli.detect_platform", lambda runner=None: _platform())
     monkeypatch.setattr(
         "veyra_proof.cli.resolve_workspace", lambda path, runner=None: _workspace(root)
@@ -67,7 +68,7 @@ def _stub_cli(monkeypatch, root) -> None:
 
 
 @pytest.fixture()
-def crate(tmp_path):
+def crate(tmp_path: Path) -> Path:
     root = tmp_path / "ws"
     root.mkdir()
     (root / "Cargo.toml").write_text(
@@ -77,7 +78,7 @@ def crate(tmp_path):
 
 
 class TestBrokenConfigIsAUsageError:
-    def test_malformed_toml_names_the_file_and_the_line(self, tmp_path):
+    def test_malformed_toml_names_the_file_and_the_line(self, tmp_path: Path) -> None:
         (tmp_path / "veyra.toml").write_text("this is not toml [\n", encoding="utf-8")
 
         with pytest.raises(ConfigError) as excinfo:
@@ -87,7 +88,7 @@ class TestBrokenConfigIsAUsageError:
         assert "veyra.toml" in message
         assert "line 1" in message
 
-    def test_an_unusable_value_names_the_file(self, tmp_path):
+    def test_an_unusable_value_names_the_file(self, tmp_path: Path) -> None:
         (tmp_path / "veyra.toml").write_text(
             '[mutants]\ntimeout_seconds = "soon"\n', encoding="utf-8"
         )
@@ -97,14 +98,16 @@ class TestBrokenConfigIsAUsageError:
 
         assert "veyra.toml" in str(excinfo.value)
 
-    def test_a_valid_file_still_loads(self, tmp_path):
+    def test_a_valid_file_still_loads(self, tmp_path: Path) -> None:
         (tmp_path / "veyra.toml").write_text('[semver]\nbaseline = "v0.9.1"\n', encoding="utf-8")
 
         config = load_veyra_config(tmp_path)
 
         assert config.semver.baseline == "v0.9.1"
 
-    def test_the_cli_exits_2_instead_of_calling_itself_broken(self, crate, monkeypatch, capsys):
+    def test_the_cli_exits_2_instead_of_calling_itself_broken(
+        self, crate: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         (crate / "veyra.toml").write_text("this is not toml [\n", encoding="utf-8")
         _stub_cli(monkeypatch, crate)
 
@@ -118,8 +121,8 @@ class TestBrokenConfigIsAUsageError:
 
 class TestATypoInAToolListIsRefused:
     def test_an_unknown_include_id_stops_the_audit_before_evidence(
-        self, crate, monkeypatch, capsys
-    ):
+        self, crate: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         _stub_cli(monkeypatch, crate)
 
         code = main(["audit", str(crate), "--profile", "quick", "--include", "nope"])
@@ -132,7 +135,9 @@ class TestATypoInAToolListIsRefused:
         assert captured.out == ""
         assert not (crate / ".veyra").exists()
 
-    def test_an_unknown_exclude_id_stops_the_plan_too(self, crate, monkeypatch, capsys):
+    def test_an_unknown_exclude_id_stops_the_plan_too(
+        self, crate: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """`plan` used to exit 0 here while the audit exited 2."""
         _stub_cli(monkeypatch, crate)
 
@@ -152,12 +157,12 @@ class TestTwoRunsNeverShareOneEvidenceTree:
     way. A verdict's evidence has to describe the run that produced it.
     """
 
-    def test_the_fresh_path_is_the_base_when_nothing_is_there(self, tmp_path):
+    def test_the_fresh_path_is_the_base_when_nothing_is_there(self, tmp_path: Path) -> None:
         base = tmp_path / "evidence"
 
         assert unique_evidence_dir(base) == base
 
-    def test_an_existing_path_gets_a_deterministic_suffix(self, tmp_path):
+    def test_an_existing_path_gets_a_deterministic_suffix(self, tmp_path: Path) -> None:
         base = tmp_path / "evidence"
         base.mkdir()
 
@@ -167,8 +172,8 @@ class TestTwoRunsNeverShareOneEvidenceTree:
         assert unique_evidence_dir(base) == tmp_path / "evidence-3"
 
     def test_a_second_audit_writes_beside_the_first_and_inherits_nothing(
-        self, crate, monkeypatch, capsys
-    ):
+        self, crate: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         _stub_cli(monkeypatch, crate)
         target = crate / "ev"
         argv = [
@@ -199,7 +204,7 @@ class TestTwoRunsNeverShareOneEvidenceTree:
 
 
 class TestTheVerdictNamesWhyARequiredToolDidNotRun:
-    def test_excluded_tools_are_not_described_as_missing(self):
+    def test_excluded_tools_are_not_described_as_missing(self) -> None:
         decision = decide(
             [],
             fail_on="findings",
@@ -212,7 +217,7 @@ class TestTheVerdictNamesWhyARequiredToolDidNotRun:
         assert "--exclude" in decision.reason
         assert "missing or not executable" not in decision.reason
 
-    def test_a_tool_that_is_really_absent_is_still_called_missing(self):
+    def test_a_tool_that_is_really_absent_is_still_called_missing(self) -> None:
         decision = decide(
             [],
             fail_on="findings",

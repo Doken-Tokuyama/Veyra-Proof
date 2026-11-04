@@ -449,7 +449,7 @@ A stale Cloud account copy does not block a release: that cache is machine-local
 .venv/bin/python -m mypy
 ```
 
-The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`, including the bodies of functions without annotations (`check_untyped_defs`). Production and script signatures must be annotated (`disallow_untyped_defs`); test helpers are the one exception until their fixtures are annotated, and their bodies are still checked. The same commands run before each commit through the versioned hook:
+The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`, including the bodies of functions without annotations (`check_untyped_defs`). Every production, test and script signature must be annotated (`disallow_untyped_defs`). Pytest fixture values with dynamic shapes are typed as `Any` at the fixture boundary. The same commands run before each commit through the versioned hook:
 
 ```bash
 git config core.hooksPath .githooks
