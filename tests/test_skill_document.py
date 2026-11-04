@@ -1,9 +1,8 @@
 """Guards for the canonical Veyra skill document and its multi-harness fan-out.
 
-The skill is mutated by more than a human: EvoForge's ``mcp_mutate_skill``, the
-GEPA guard skills, and any future skill optimizer all edit this file. These
-tests fail the build when a mutation erodes the safety envelope or the
-harness-neutral portability contract.
+The skill is mutated by more than a human: the GEPA guard skills and any future
+skill optimizer all edit this file. These tests fail the build when a mutation
+erodes the safety envelope or the harness-neutral portability contract.
 """
 
 from __future__ import annotations
