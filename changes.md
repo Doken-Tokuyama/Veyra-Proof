@@ -5,8 +5,8 @@
   `tests` and `scripts`, including unannotated function bodies. `ruff format
   --check` enforces one formatting for the same tree, and `disallow_untyped_defs`
   makes a missing annotation anywhere in `src`, `tests` or `scripts` an error.
-  Pytest fixture values with dynamic shapes are typed as `Any` at the fixture
-  boundary. Everything runs in a dedicated CI job and through an opt-in
+  Dynamic script fixtures use named protocols; `Any` remains only for fake hooks
+  and opaque pytest values. Everything runs in a dedicated CI job and through an opt-in
   pre-commit hook, so a lint, format or type regression fails the same commit
   that introduced it.
 

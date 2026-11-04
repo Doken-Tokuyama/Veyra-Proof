@@ -14,23 +14,22 @@ project asks for it through `veyra.toml`.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from veyra_proof.command_runner import CommandRunner
 from veyra_proof.config import PolicyConfig, VeyraConfig
-from veyra_proof.models import PlatformOS, WorkspaceInfo
+from veyra_proof.models import Finding, PlatformOS, WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo
 from veyra_proof.tools.anti_theater import analyze_rust_sources
 from veyra_proof.tools.base import AuditContext, parse_ignored_tests
 
 
-def scan(root: Path, policy: PolicyConfig | None = None) -> Any:
+def scan(root: Path, policy: PolicyConfig | None = None) -> list[Finding]:
     return analyze_rust_sources(root, [], policy or PolicyConfig())
 
 
-def rules(findings: Any, rule: str) -> list:
+def rules(findings: list[Finding], rule: str) -> list[Finding]:
     return [f for f in findings if f.rule == rule]
 
 
@@ -368,7 +367,7 @@ class TestUpstreamStyleProjectIsNotRejected:
 
 
 class TestToolSummaryShowsWhatWasFound:
-    def _context(self, tmp_path: Path) -> Any:
+    def _context(self, tmp_path: Path) -> AuditContext:
         workspace = WorkspaceInfo(
             path=str(tmp_path),
             workspace_root=str(tmp_path),
