@@ -448,7 +448,7 @@ A stale Cloud account copy does not block a release: that cache is machine-local
 .venv/bin/python -m mypy
 ```
 
-The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`. The same commands run before each commit through the versioned hook:
+The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`, including the bodies of functions without annotations (`check_untyped_defs`). The same commands run before each commit through the versioned hook:
 
 ```bash
 git config core.hooksPath .githooks

@@ -83,5 +83,6 @@ python_version = "3.10"
 files = ["src/veyra_proof", "tests", "scripts"]
 ignore_missing_imports = true
 no_implicit_optional = true
+check_untyped_defs = true
 warn_redundant_casts = true
 show_error_codes = true

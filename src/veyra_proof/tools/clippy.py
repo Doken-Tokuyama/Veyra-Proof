@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 
 from veyra_proof.installer import rustup_component_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
@@ -99,6 +99,8 @@ class ClippyTool(Tool):
             f"# exit {fallback.exit_code}\n\n{fallback.stdout}\n{fallback.stderr}\n"
         )
         out, err = self.write_logs(context, log, fallback.stderr)
+        status: ResultStatus
+        severity: Severity
         findings = ([] if stale_lockfile(fallback_text) else parse_clippy_output(fallback_text)) + [
             Finding(
                 rule="nightly-only-target",

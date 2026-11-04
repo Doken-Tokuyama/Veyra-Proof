@@ -194,6 +194,8 @@ class TestTheLimitsAreWrittenDown:
         spec = importlib.util.spec_from_file_location(
             "ci_assert", README.parent / "scripts" / "ci_assert_evidence.py"
         )
+        assert spec is not None
+        assert spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 

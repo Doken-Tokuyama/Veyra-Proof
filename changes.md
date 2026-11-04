@@ -2,9 +2,9 @@
 
 - **Python quality gate.** `ruff` now enforces the base, import and bugbear
   rules over `src`, `tests` and `scripts`, and `mypy` checks `src/veyra_proof`,
-  `tests` and `scripts`. Both run in a dedicated CI job and through an opt-in
-  pre-commit hook, so a lint or type regression fails the same commit that
-  introduced it.
+  `tests` and `scripts`, including unannotated function bodies. Both run in a
+  dedicated CI job and through an opt-in pre-commit hook, so a lint or type
+  regression fails the same commit that introduced it.
 
 ## What changed in v0.7.2
 

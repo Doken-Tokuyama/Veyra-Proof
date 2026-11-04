@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from veyra_proof.command_runner import CommandRunner
 from veyra_proof.config import PolicyConfig, VeyraConfig
 from veyra_proof.models import PlatformOS, WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo
@@ -392,7 +393,7 @@ class TestToolSummaryShowsWhatWasFound:
             workspace=workspace,
             platform=platform,
             config=VeyraConfig(),
-            runner=None,
+            runner=CommandRunner(dry_run=True),
             evidence_dir=tmp_path / "evidence",
             profile="quick",
             timeout_seconds=60.0,
