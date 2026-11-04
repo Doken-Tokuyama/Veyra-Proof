@@ -1,4 +1,4 @@
-## Unreleased
+## What changed in v0.7.2
 
 - **The live audit is proven on macOS as well as Linux.** The audit job was a
 single Linux runner, so a macOS-only failure in the real toolchain would first
