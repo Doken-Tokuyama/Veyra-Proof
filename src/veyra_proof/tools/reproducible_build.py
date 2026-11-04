@@ -6,7 +6,7 @@ import hashlib
 import platform
 from pathlib import Path
 
-from veyra_proof.models import DetectionResult, Finding, Severity
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 SKIP_SUFFIXES = {".d", ".rmeta", ".timestamp", ".o", ".pdb"}
@@ -137,6 +137,8 @@ class ReproducibleBuildTool(Tool):
         b_hashes = _final_artifacts(t2, names)
         out, err = self.write_logs(context, last_out, last_err)
 
+        status: ResultStatus
+        severity: Severity
         if not a_hashes or not b_hashes:
             status, severity, summary = (
                 "INCONCLUSIVE",

@@ -103,11 +103,6 @@ def library_package_names(workspace: WorkspaceInfo) -> list[str]:
 
 
 def has_dylint_config(workspace_root: Path) -> bool:
-    markers = [
-        workspace_root / "dylint.toml",
-        workspace_root / ".dylint.toml",
-        workspace_root / "Cargo.toml",
-    ]
     cargo = workspace_root / "Cargo.toml"
     if cargo.is_file():
         text = cargo.read_text(encoding="utf-8", errors="replace")

@@ -23,15 +23,15 @@ from veyra_proof.reporting import (
     classify_project_changes,
     decide,
     default_evidence_dir,
-    unique_evidence_dir,
     render_markdown,
     timing_accounting,
+    unique_evidence_dir,
     utc_timestamp_dir,
     write_evidence,
 )
 from veyra_proof.tool_registry import (
-    required_tool_ids,
     registry_rows,
+    required_tool_ids,
     select_tools,
     unknown_tool_ids,
 )
@@ -263,9 +263,9 @@ def _prepare_context(
         det = tool.detect(detect_ctx)
         detections[tool.id] = det
         if not det.available and args.install_missing:
-            plan = tool.install_plan(detect_ctx)
-            if plan is not None:
-                install_plans.append(plan)
+            tool_plan = tool.install_plan(detect_ctx)
+            if tool_plan is not None:
+                install_plans.append(tool_plan)
 
     plan = _build_plan_dict(
         ctx=detect_ctx,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -43,10 +43,11 @@ class CargoMacheteTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         cmd = ["cargo", "machete"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
-        text = result.stdout + "\n" + result.stderr
         findings: list[Finding] = []
         if result.timed_out:
             status, severity, summary = "INCONCLUSIVE", "warning", "cargo-machete timed out"

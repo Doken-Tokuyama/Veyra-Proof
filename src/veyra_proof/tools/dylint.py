@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import shutil
 
-from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, InstallPlan, InstallStep
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    InstallStep,
+    ResultStatus,
+    Severity,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import has_dylint_config
 
@@ -42,6 +48,8 @@ class DylintTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         if not has_dylint_config(context.root):
             return self.skipped(context, "no Dylint configuration or lint libraries found; refusing to invent lints")
         cmd = ["cargo", "dylint", "--all"]

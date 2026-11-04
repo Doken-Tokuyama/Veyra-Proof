@@ -5,7 +5,7 @@ import re
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, Severity
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, normalize_newlines, utc_now_iso
 
 DENY_DIAG_RE = re.compile(
@@ -68,6 +68,8 @@ class CargoDenyTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         cmd = ["cargo", "deny", "check"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)

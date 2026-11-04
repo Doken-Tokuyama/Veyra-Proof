@@ -474,7 +474,7 @@ class TestTheStateRowsAreTheFootersRows:
 
         record["state"] = {
             "release": [
-                f"the release already exists on GitHub — gh release view v0.4.9 found it"
+                "the release already exists on GitHub — gh release view v0.4.9 found it"
             ],
             "pypi": record["state"]["pypi"],
         }

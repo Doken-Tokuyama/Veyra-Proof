@@ -8,7 +8,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from veyra_proof.models import DetectionResult, Finding, Severity
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 SKIP_DIR_NAMES = {".git", "target", ".veyra", "node_modules", ".cargo"}
@@ -185,15 +185,9 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
         # module that documents why it has placeholders must not be reported as
         # a module that ships them.
         code_lines = _code_lines(lines)
-        in_cfg_test = False
-        cfg_test_depth = 0
-        brace_balance = 0
-
-        for idx, line in enumerate(lines, start=1):
+        for idx, _line in enumerate(lines, start=1):
             _raw, stripped = code_lines[idx - 1]
 
-            if "#[cfg(test)]" in stripped:
-                in_cfg_test = True
             if "#[cfg(not(test))]" in stripped and _is_production_src(rel):
                 findings.append(
                     Finding(
@@ -500,6 +494,8 @@ class AntiTheaterTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         clock = time.perf_counter()
         findings = analyze_rust_sources(
             context.root,

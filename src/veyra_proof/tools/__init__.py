@@ -1,7 +1,10 @@
 """Tool plugins for Veyra Proof."""
 
+from collections.abc import Callable
+
 from veyra_proof.tools.anti_theater import AntiTheaterTool
 from veyra_proof.tools.audit import CargoAuditTool
+from veyra_proof.tools.base import Tool
 from veyra_proof.tools.cargo_check import CargoCheckTool
 from veyra_proof.tools.cargo_test import CargoTestTool
 from veyra_proof.tools.check_external_types import CheckExternalTypesTool
@@ -23,7 +26,7 @@ from veyra_proof.tools.sast_optional import CodeQLTool, SemgrepTool
 from veyra_proof.tools.semver_checks import SemverChecksTool
 from veyra_proof.tools.vet import CargoVetTool
 
-ALL_TOOL_CLASSES = [
+ALL_TOOL_CLASSES: list[Callable[[], Tool]] = [
     CargoCheckTool,
     RustfmtTool,
     ClippyTool,

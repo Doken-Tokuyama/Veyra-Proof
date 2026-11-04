@@ -724,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
             for problem in problems:
                 print(f"        - {problem}")
         if provenance_problems:
-            print(f"  FAIL  the index's files were built from a commit other than the one")
+            print("  FAIL  the index's files were built from a commit other than the one")
             print(f"        being released ({label}):")
             for problem in provenance_problems[:6]:
                 print(f"        - {problem}")

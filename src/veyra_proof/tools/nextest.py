@@ -5,7 +5,13 @@ import shutil
 
 from veyra_proof.installer import cargo_install_plan
 from veyra_proof.models import DetectionResult
-from veyra_proof.tools.base import AuditContext, Tool, classify_from_command, parse_test_failures, utc_now_iso
+from veyra_proof.tools.base import (
+    AuditContext,
+    Tool,
+    classify_from_command,
+    parse_test_failures,
+    utc_now_iso,
+)
 
 
 class NextestTool(Tool):

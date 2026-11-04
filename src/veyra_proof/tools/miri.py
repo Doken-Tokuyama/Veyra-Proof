@@ -3,7 +3,14 @@ from __future__ import annotations
 
 import shutil
 
-from veyra_proof.models import DetectionResult, Finding, InstallPlan, InstallStep
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    InstallStep,
+    ResultStatus,
+    Severity,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -59,6 +66,8 @@ class MiriTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         cmd = ["cargo", "+nightly", "miri", "test", "--workspace"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)

@@ -15,9 +15,9 @@ from pathlib import Path
 from veyra_proof.config import E2eConfig, E2eScenario, VeyraConfig, load_veyra_config
 from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo
+from veyra_proof.tool_registry import required_tool_ids
 from veyra_proof.tools.base import AuditContext
 from veyra_proof.tools.e2e import E2eTool, _excerpt
-from veyra_proof.tool_registry import required_tool_ids
 
 EXE = Path("target/release/demo")
 

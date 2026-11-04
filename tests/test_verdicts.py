@@ -611,7 +611,6 @@ class TestReproducibleBuildIsAPolicyDecision:
     """
 
     def _run(self, tmp_path, *, policy):
-        from veyra_proof.models import CommandResult
         from veyra_proof.tools.reproducible_build import ReproducibleBuildTool
 
         (tmp_path / "Cargo.toml").write_text(

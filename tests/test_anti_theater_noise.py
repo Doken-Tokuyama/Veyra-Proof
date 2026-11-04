@@ -17,12 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from veyra_proof.config import PolicyConfig
-from veyra_proof.models import CommandResult, PlatformOS, WorkspaceInfo
+from veyra_proof.config import PolicyConfig, VeyraConfig
+from veyra_proof.models import PlatformOS, WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo
 from veyra_proof.tools.anti_theater import analyze_rust_sources
 from veyra_proof.tools.base import AuditContext, parse_ignored_tests
-from veyra_proof.config import VeyraConfig
 
 
 def scan(root: Path, policy: PolicyConfig | None = None):

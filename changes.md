@@ -1,3 +1,10 @@
+## Unreleased
+
+- **Python quality gate.** `ruff` now enforces the base, import and bugbear
+  rules over `src`, `tests` and `scripts`, and `mypy` checks the annotated
+  source tree. Both run in a dedicated CI job, so a lint or type regression
+  fails the same commit that introduced it.
+
 ## What changed in v0.7.2
 
 - **The live audit is proven on macOS as well as Linux.** The audit job was a

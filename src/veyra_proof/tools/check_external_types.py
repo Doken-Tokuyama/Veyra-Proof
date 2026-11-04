@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import library_package_names
 
@@ -37,6 +37,8 @@ class CheckExternalTypesTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         libs = library_package_names(context.workspace)
         if not libs:
             return self.skipped(context, "no library crates; check-external-types not applicable")

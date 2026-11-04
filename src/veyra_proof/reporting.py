@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from veyra_proof.models import AuditDecision, FailOn, ToolResult
-from veyra_proof.tool_registry import CONFIG_GATED, SOFT_OPTIONAL
 
 
 def utc_timestamp_dir() -> str:
@@ -162,16 +161,16 @@ def decide(
         return AuditDecision("REJECTED", f"Inconclusive optional checks: {_join(inconclusive_optional)}", 1)
 
     for tid in required:
-        r = by_id.get(tid)
-        if r is None:
+        result = by_id.get(tid)
+        if result is None:
             return AuditDecision("INCONCLUSIVE", f"Required tools not executed: {tid}", 2)
-        if r.status == "SKIPPED":
+        if result.status == "SKIPPED":
             return AuditDecision(
                 "INCONCLUSIVE",
-                f"Required tool skipped unexpectedly: {tid} ({_skip_kind(r)})",
+                f"Required tool skipped unexpectedly: {tid} ({_skip_kind(result)})",
                 2,
             )
-        if r.status not in {"OK", "FINDINGS"}:
+        if result.status not in {"OK", "FINDINGS"}:
             return AuditDecision("INCONCLUSIVE", f"Required tool did not complete cleanly: {tid}", 2)
 
     return AuditDecision(

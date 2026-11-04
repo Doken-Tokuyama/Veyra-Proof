@@ -875,7 +875,7 @@ def test_prune_is_recorded_in_the_audit_log(sync, tmp_path) -> None:
     _seed_skill(root)
     (home / ".cursor").mkdir()
     assert sync.main(argv) == 0
-    retired = _stamped_copy(home / ".cursor" / "skills", "veyra-old", "veyra-proof")
+    _stamped_copy(home / ".cursor" / "skills", "veyra-old", "veyra-proof")
 
     assert sync.main(argv + ["--prune", "--apply"]) == 0
     log = sync.LOG_PATH.read_text(encoding="utf-8")

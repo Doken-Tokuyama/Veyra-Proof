@@ -6,7 +6,7 @@ import shlex
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -63,6 +63,8 @@ class CargoGeigerTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         commands = self._commands(context)
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
@@ -87,7 +89,7 @@ class CargoGeigerTool(Tool):
         )
         hard_failures = [
             code
-            for code, so, se in zip(exit_codes, stdout_parts, stderr_parts)
+            for code, so, se in zip(exit_codes, stdout_parts, stderr_parts, strict=True)
             if code not in (None, 0) and not _coverage_warning_run(so, se)
         ]
         coverage_warning_runs = len(failures) - len(hard_failures)

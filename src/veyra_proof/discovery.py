@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from veyra_proof.command_runner import CommandRunner
+from veyra_proof.config import VeyraConfig
+from veyra_proof.models import WorkspaceInfo
 from veyra_proof.platform_info import PlatformInfo, detect_platform
 from veyra_proof.tool_registry import all_tools
 from veyra_proof.tools.base import AuditContext
-from veyra_proof.config import VeyraConfig
-from veyra_proof.models import WorkspaceInfo
-from pathlib import Path
 
 
 @dataclass

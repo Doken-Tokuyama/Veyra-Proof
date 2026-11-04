@@ -77,6 +77,7 @@ class Tool(ABC):
     safety_level: str = "standard"
     timeout_seconds: float | None = None
     reasons_to_skip: list[str] = []
+    _unknown_includes: list[str] = []
 
     @abstractmethod
     def detect(self, context: AuditContext) -> DetectionResult:

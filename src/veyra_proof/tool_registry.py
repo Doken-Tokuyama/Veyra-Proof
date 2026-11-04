@@ -262,9 +262,9 @@ def select_tools(
         selected.append(tool)
     # Stash unknowns on a sentinel attribute for CLI warnings
     for tool in selected:
-        setattr(tool, "_unknown_includes", unknown)
+        tool._unknown_includes = unknown
     if selected:
-        setattr(selected[0], "_unknown_includes", unknown)
+        selected[0]._unknown_includes = unknown
     elif unknown:
         # return empty but CLI can check via select_tools_meta
         pass

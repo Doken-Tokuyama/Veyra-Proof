@@ -370,6 +370,7 @@ pyinstaller --onefile --name veyra src/veyra_proof/__main__.py
 | Job | What it proves |
 |---|---|
 | `test` | The full test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
+| `quality` | `ruff` over `src`, `tests` and `scripts`, and `mypy` over `src/veyra_proof` |
 | `audit` | A real audit of the demo crate on a real Rust toolchain, on Linux and macOS, followed by a check that the evidence on disk backs the verdict |
 | `account-skill` | Whether the Freebuff Desktop account copy of the skill still matches the canonical one — advisory, see below |
 
@@ -437,6 +438,17 @@ When a tag exists, the run ends by saying what is left and what it will not do: 
 **The limit, stated plainly: git has no pre-tag hook.** `python scripts/pre_release.py` (no `--tag`) runs the same checklist and reports; anyone who runs `git tag` directly bypasses all of it. This gate is real only for people who tag through it.
 
 A stale Cloud account copy does not block a release: that cache is machine-local and is not what a release ships. The `copies` step reports it as a warning and passes.
+
+## Quality gate
+
+`ruff` and `mypy` run in a dedicated CI job, so a lint or type regression fails the same commit that introduced it:
+
+```bash
+.venv/bin/python -m ruff check src tests scripts
+.venv/bin/python -m mypy
+```
+
+The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof` with `ignore_missing_imports`; it does not claim to type-check the tests or the release scripts.
 
 ## Tests
 

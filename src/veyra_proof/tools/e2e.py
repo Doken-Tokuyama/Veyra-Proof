@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from veyra_proof.config import E2eScenario
-from veyra_proof.models import DetectionResult, Finding, Severity
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 RULE_VACUOUS = "E2E00"
@@ -425,7 +425,8 @@ class E2eTool(Tool):
                 return self._finish(
                     context,
                     started,
-                    command,                    elapsed=time.perf_counter() - clock,
+                    command,
+                    elapsed=time.perf_counter() - clock,
                     findings=findings,
                     log=_log_lines(Path("(not built)"), "-", []),
                     build_stderr="",
@@ -449,7 +450,8 @@ class E2eTool(Tool):
             return self._finish(
                 context,
                 started,
-                command,                elapsed=time.perf_counter() - clock,
+                command,
+                elapsed=time.perf_counter() - clock,
                 findings=findings,
                 log=f"build timed out after {build.duration_seconds:.1f}s\n",
                 build_stderr=_excerpt(build.stderr),
@@ -479,7 +481,8 @@ class E2eTool(Tool):
             return self._finish(
                 context,
                 started,
-                command,                elapsed=time.perf_counter() - clock,
+                command,
+                elapsed=time.perf_counter() - clock,
                 findings=findings,
                 log=_log_lines(Path("(build failed)"), "-", []),
                 build_stderr=_excerpt(build.stderr),
@@ -493,7 +496,8 @@ class E2eTool(Tool):
             return self._finish(
                 context,
                 started,
-                command,                elapsed=time.perf_counter() - clock,
+                command,
+                elapsed=time.perf_counter() - clock,
                 findings=findings,
                 log=_log_lines(Path("(no binary produced)"), "-", []),
                 build_stderr=_excerpt(build.stderr),
@@ -525,7 +529,8 @@ class E2eTool(Tool):
                 return self._finish(
                     context,
                     started,
-                    command,                    elapsed=time.perf_counter() - clock,
+                    command,
+                    elapsed=time.perf_counter() - clock,
                     findings=findings,
                     log=_log_lines(Path("(declared binary missing)"), "-", []),
                     build_stderr=_excerpt(build.stderr),
@@ -582,6 +587,8 @@ class E2eTool(Tool):
             summary_scenarios += f", {len(timed_out)} timed out ({', '.join(timed_out)})"
 
         visible = [f for f in findings if f.severity != "info"]
+        status: ResultStatus
+        severity: Severity
         if timed_out and not visible:
             status, severity = "INCONCLUSIVE", "warning"
             summary = summary_scenarios + "; timed-out scenarios have no verdict"
@@ -599,7 +606,8 @@ class E2eTool(Tool):
         return self._finish(
             context,
             started,
-            command,            elapsed=time.perf_counter() - clock,
+            command,
+            elapsed=time.perf_counter() - clock,
             findings=findings,
             log=log,
             build_stderr=_excerpt(build.stderr),
@@ -623,7 +631,7 @@ class E2eTool(Tool):
         log: str,
         build_stderr: str,
         exit_code: int,
-        status: str,
+        status: ResultStatus,
         summary: str,
         severity: Severity,
         binary: Path | None = None,
@@ -643,7 +651,7 @@ class E2eTool(Tool):
             environment["binary"] = target_name
         artifact_hashes = {str(binary): digest} if binary and digest else {}
         tr = self.make_result(
-            status=status,  # type: ignore[arg-type]
+            status=status,
             severity=severity,
             summary=summary,
             started_at=started,

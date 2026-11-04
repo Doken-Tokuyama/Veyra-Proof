@@ -3,7 +3,14 @@ from __future__ import annotations
 
 import shutil
 
-from veyra_proof.models import DetectionResult, Finding, InstallPlan, InstallStep
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    InstallStep,
+    ResultStatus,
+    Severity,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import has_kani_harnesses
 
@@ -52,6 +59,8 @@ class KaniTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         include = {x.strip() for x in context.include}
         if not context.config.kani.enabled and "kani" not in include and not has_kani_harnesses(context.root):
             return self.skipped(context, "no #[kani::proof] harnesses or explicit configuration found")

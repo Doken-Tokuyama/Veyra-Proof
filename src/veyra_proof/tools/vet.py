@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -37,6 +36,8 @@ class CargoVetTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         config = context.root / "supply-chain" / "config.toml"
         if not config.is_file():
             return self.skipped(context, "no supply-chain/config.toml; refusing to initialize cargo-vet without authorization")

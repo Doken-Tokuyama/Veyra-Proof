@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import fuzz_directory
 
@@ -41,6 +41,8 @@ class CargoFuzzTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         fuzz_dir = fuzz_directory(context.root)
         if fuzz_dir is None:
             return self.skipped(context, "no fuzz/ directory or configured targets found")

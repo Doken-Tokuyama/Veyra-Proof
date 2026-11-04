@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import shutil
 
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity, ToolResult
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
@@ -83,7 +83,7 @@ class CargoCheckTool(Tool):
         cmd: list[str],
         failed,
         blocked: list[str],
-    ) -> "ToolResult":
+    ) -> ToolResult:
         """Retry without the targets stable cannot build, and report what was missed.
 
         A nightly-only ``#![feature]`` in a benchmark says nothing about the
@@ -106,6 +106,8 @@ class CargoCheckTool(Tool):
         )
         out, err = self.write_logs(context, log, fallback.stderr)
 
+        status: ResultStatus
+        severity: Severity
         if fallback.timed_out:
             status, severity = "INCONCLUSIVE", "warning"
             summary = "cargo check timed out on the stable-target retry"

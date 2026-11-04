@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 
 from veyra_proof.installer import rustup_component_plan
-from veyra_proof.models import DetectionResult, Finding
+from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -41,6 +41,8 @@ class RustfmtTool(Tool):
 
     def run(self, context: AuditContext):
         started = utc_now_iso()
+        status: ResultStatus
+        severity: Severity
         cmd = ["cargo", "fmt", "--all", "--", "--check"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
