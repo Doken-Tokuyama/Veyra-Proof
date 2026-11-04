@@ -70,6 +70,18 @@ jobs:
       - name: Run the auditor and verify its evidence
         run: python scripts/ci_assert_evidence.py tests/fixtures/demo_crate
 
+      # The evidence is the product. When this job fails, the runner is
+      # discarded with it, so the logs that explain the verdict would be gone.
+      # `always()` keeps them for the failure that needs them.
+      - name: Upload the evidence this run produced
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veyra-evidence-${{ github.run_id }}
+          path: tests/fixtures/demo_crate/.veyra/evidence/**
+          if-no-files-found: warn
+          retention-days: 14
+
   account-skill:
     name: account skill copy (advisory)
     runs-on: ubuntu-latest

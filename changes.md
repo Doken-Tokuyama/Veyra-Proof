@@ -1,3 +1,31 @@
+## What changed in v0.7.1
+
+- **A defective workspace is proven to be rejected, not only reported.** The live
+tests all audited a clean crate, so the chain that matters most — a real
+`todo!()` in a real crate, discovered, compiled and turned into a blocker — was
+only checked against a mocked runner. `tests/fixtures/broken_crate/` is a
+deliberately unfinished crate with a production placeholder and a failing test;
+`tests/test_live_reject.py` runs the real CLI and requires exit 1, a `REJECTED`
+verdict, `VT001` at blocker severity, `cargo-test` at exit 101 with a
+`test-failure` finding, and the evidence files those results name. A test that
+only proves the happy path has proven the wrong half.
+- **The hardened adapters have failure-path tests, and Windows line endings are
+parsed.** Fuzz, Miri, Kani, llvm-cov, mutants, machete, deny, dylint, vet,
+external types and the optional SAST adapters only run under `hardened` or
+explicit configuration, so the live audit never reaches them and their timeout,
+non-zero-exit and skip paths were untested. `tests/test_tool_adapters.py`
+exercises each one, including the cases that used to be silent. Writing them
+found a real defect: `parse_test_failures` and `parse_ignored_tests` anchor on
+`$` in multiline mode, which never matches the `\r` in a CRLF line, so on
+Windows a failing test produced no finding at all. Tool output is now
+normalised before line-anchored parsing, and both parsers have a CRLF
+regression test.
+- **CI keeps the evidence it produced.** The audit job verifies that the files
+on disk back the verdict, then the runner is discarded — so a failure destroyed
+the logs that explained it. The job now uploads
+`tests/fixtures/demo_crate/.veyra/evidence/**` with `if: always()` and a 14-day
+retention, which makes a failed audit diagnosable without reproducing it.
+
 ## What changed in v0.7.0
 
 - **A `veyra.toml` this tool cannot read is exit 2, not exit 3.** It used to surface as

@@ -6,7 +6,7 @@ import shutil
 
 from veyra_proof.installer import cargo_install_plan
 from veyra_proof.models import DetectionResult, Finding, Severity
-from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
+from veyra_proof.tools.base import AuditContext, Tool, normalize_newlines, utc_now_iso
 
 DENY_DIAG_RE = re.compile(
     r"^(?P<level>error|warning)\[(?P<code>[^\]]+)\]:\s*(?P<msg>.+)$",
@@ -16,7 +16,7 @@ DENY_DIAG_RE = re.compile(
 
 def parse_deny_output(text: str) -> list[Finding]:
     findings: list[Finding] = []
-    for m in DENY_DIAG_RE.finditer(text):
+    for m in DENY_DIAG_RE.finditer(normalize_newlines(text)):
         level = m.group("level")
         code = m.group("code")
         msg = m.group("msg").strip()

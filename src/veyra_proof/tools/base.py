@@ -410,9 +410,20 @@ def parse_clippy_output(text: str) -> list[Finding]:
     return findings
 
 
+def normalize_newlines(text: str) -> str:
+    """Normalize tool output before line-anchored parsing.
+
+    A tool on Windows writes CRLF, and ``$`` in a multiline pattern matches
+    before ``\n`` but not before ``\r``. Without this, a failing test and an
+    ignored test were both invisible on that platform — the parser reported no
+    finding, not a wrong one.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def parse_test_failures(text: str) -> list[Finding]:
     findings: list[Finding] = []
-    for m in TEST_FAIL_RE.finditer(text):
+    for m in TEST_FAIL_RE.finditer(normalize_newlines(text)):
         findings.append(
             Finding(
                 rule="test-failure",
@@ -430,7 +441,7 @@ def parse_test_failures(text: str) -> list[Finding]:
 
 def parse_ignored_tests(text: str, *, severity: Severity = "info") -> list[Finding]:
     findings: list[Finding] = []
-    for m in TEST_IGN_RE.finditer(text):
+    for m in TEST_IGN_RE.finditer(normalize_newlines(text)):
         findings.append(
             Finding(
                 rule="ignored-test",
