@@ -370,7 +370,7 @@ pyinstaller --onefile --name veyra src/veyra_proof/__main__.py
 | Job | What it proves |
 |---|---|
 | `test` | The full test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
-| `quality` | `ruff` over `src`, `tests` and `scripts`, and `mypy` over `src/veyra_proof` |
+| `quality` | `ruff` over `src`, `tests` and `scripts`, and `mypy` over `src/veyra_proof`, `tests` and `scripts` |
 | `audit` | A real audit of the demo crate on a real Rust toolchain, on Linux and macOS, followed by a check that the evidence on disk backs the verdict |
 | `account-skill` | Whether the Freebuff Desktop account copy of the skill still matches the canonical one — advisory, see below |
 
@@ -448,7 +448,13 @@ A stale Cloud account copy does not block a release: that cache is machine-local
 .venv/bin/python -m mypy
 ```
 
-The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof` with `ignore_missing_imports`; it does not claim to type-check the tests or the release scripts.
+The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`. The same commands run before each commit through the versioned hook:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-commit` runs the gate from the repository root. It is opt-in because `core.hooksPath` is local git configuration; a fresh clone runs the command once.
 
 ## Tests
 

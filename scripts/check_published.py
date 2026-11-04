@@ -85,6 +85,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Any
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -378,7 +379,7 @@ def commit_tree(root: Path, commit: str) -> dict[str, str] | None:
     data = described.stdout
     offset = 0
     tree: dict[str, str] = {}
-    for _, path in blobs:
+    for _, blob_path in blobs:
         header_end = data.find(b"\n", offset)
         if header_end < 0:
             return None
@@ -387,7 +388,7 @@ def commit_tree(root: Path, commit: str) -> dict[str, str] | None:
             return None
         size = int(fields[2])
         start = header_end + 1
-        tree[path] = sha256_bytes(data[start : start + size])
+        tree[blob_path] = sha256_bytes(data[start : start + size])
         # `cat-file --batch` prints the blob, then one newline before the next header.
         offset = start + size + 1
     return tree
@@ -550,6 +551,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Write what was measured, as JSON, to this path (used by the gate).",
     )
     args = parser.parse_args(argv)
+    facts: dict[str, Any]
 
     root = (args.root or Path(__file__).resolve().parents[1]).expanduser().resolve()
     dist = (args.dist or root / "dist").expanduser().resolve()
@@ -671,10 +673,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  FAIL  --commit {args.commit} names no commit git can show", file=sys.stderr)
         return 2
     tree = commit_tree(root, commit) if commit else None
-    label = f"the released commit {commit[:12]}" if commit else "the released commit"
+    commit_short = commit[:12] if commit else "unknown"
+    label = f"the released commit {commit_short}" if commit else "the released commit"
     unproven = tree is None
     provenance_problems: list[str] = []
-    if not unproven:
+    if tree is not None:
         for record in records:
             digests = digests_by_file.get(record["filename"])
             if digests is None:
@@ -691,7 +694,7 @@ def main(argv: list[str] | None = None) -> int:
         "released_commit": commit,
         # Recorded, not derived later: the release notes cite this form, and every
         # number in them has to be one the record holds (release_notes.py's own guard).
-        "released_commit_short": commit[:12] if commit else None,
+        "released_commit_short": commit_short if commit else None,
         "released_from": origin,
         "files": records,
         "files_compared": len(records),
@@ -752,7 +755,7 @@ def main(argv: list[str] | None = None) -> int:
         "is not byte-identical"
     )
     print("        unless it says so above, which is why the payload is what is compared.")
-    print(f"  PASS  provenance: the published files are built from {commit[:12]}, the")
+    print(f"  PASS  provenance: the published files are built from {commit_short}, the")
     print(f"        commit being released ({origin}): every member is what that commit")
     print("        holds, and every package file under `src/` it has is shipped.")
     return 0

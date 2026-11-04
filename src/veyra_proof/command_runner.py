@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Mapping, Sequence, TextIO
+from typing import Mapping, Protocol, Sequence, TextIO
 
 from veyra_proof.models import CommandResult
 
@@ -110,6 +110,20 @@ def apply_lock_policy(
             insert_at = position
             break
     return argv[:insert_at] + ["--locked"] + argv[insert_at:]
+
+
+class Runner(Protocol):
+    """The command-runner interface tools need; tests can provide a scripted one."""
+
+    def run(
+        self,
+        command: list[str],
+        *,
+        cwd: str | Path | None = None,
+        timeout: float | None = None,
+        env: Mapping[str, str] | None = None,
+        input_text: str | None = None,
+    ) -> CommandResult: ...
 
 
 class CommandRunner:

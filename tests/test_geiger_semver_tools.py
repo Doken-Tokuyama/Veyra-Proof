@@ -29,7 +29,7 @@ class ScriptedRunner:
         self.results = list(results)
         self.calls: list[list[str]] = []
 
-    def run(self, command, cwd=None, timeout=None, input_text=None) -> CommandResult:
+    def run(self, command, cwd=None, timeout=None, env=None, input_text=None) -> CommandResult:
         self.calls.append(list(command))
         return self.results[min(len(self.calls) - 1, len(self.results) - 1)]
 

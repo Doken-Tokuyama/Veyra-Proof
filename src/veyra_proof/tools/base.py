@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from veyra_proof.command_runner import CommandRunner, apply_lock_policy
+from veyra_proof.command_runner import Runner, apply_lock_policy
 from veyra_proof.config import VeyraConfig
 from veyra_proof.hashing import sha256_file
 from veyra_proof.models import (
@@ -39,7 +39,7 @@ class AuditContext:
     workspace: WorkspaceInfo
     platform: PlatformInfo
     config: VeyraConfig
-    runner: CommandRunner
+    runner: Runner
     evidence_dir: Path
     profile: str
     timeout_seconds: float

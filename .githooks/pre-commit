@@ -1,0 +1,17 @@
+#!/bin/sh
+# Keep the local commit gate in step with the CI quality job.
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+
+if [ -x .venv/bin/python ]; then
+    python=.venv/bin/python
+elif [ -x .venv/Scripts/python.exe ]; then
+    python=.venv/Scripts/python.exe
+else
+    echo "pre-commit: no .venv; run: python -m venv .venv && .venv/bin/pip install -e '.[dev]'" >&2
+    exit 1
+fi
+
+"$python" -m ruff check src tests scripts
+"$python" -m mypy

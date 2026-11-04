@@ -38,7 +38,7 @@ def checker():
     return _load()
 
 
-def _evidence(tmp_path: Path, *, status: str = "OK", exit_code: int = 0) -> Path:
+def _evidence(tmp_path: Path, *, status: str = "OK", exit_code: int | None = 0) -> Path:
     """A minimal but genuinely well-formed evidence directory."""
     directory = tmp_path / "evidence" / "20260101T000000Z"
     tools = directory / "tools" / "rustfmt"

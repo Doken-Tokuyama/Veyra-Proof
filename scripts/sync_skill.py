@@ -230,9 +230,12 @@ def keep_reporting_whatever_the_console_can_encode() -> None:
     both fine — the guard is the point, not the mechanism.
     """
     for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
         try:
-            stream.reconfigure(errors="backslashreplace")
-        except (AttributeError, OSError, ValueError):
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
             pass
 
 
@@ -451,14 +454,16 @@ def plan_target(
         # Two different problems wear the same shape, and the note says which: a
         # link into a checkout that moved is dead on arrival, while a link that
         # points at somebody's working copy is alive and reading the wrong text.
-        state = (
-            "the target does not exist: this checkout moved or was deleted"
-            if not os.path.exists(target)
-            else "points somewhere else"
-        )
+        target_text = target if target is not None else "an unreadable target"
+        if target is None:
+            state = "the link target cannot be read"
+        elif not os.path.exists(target):
+            state = "the target does not exist: this checkout moved or was deleted"
+        else:
+            state = "points somewhere else"
         if mode == MODE_COPY:
-            return Plan("copy", f"replaces the link to {target} ({state})", "copy", True)
-        return Plan("relink", f"link -> {target} ({state})", "link", True)
+            return Plan("copy", f"replaces the link to {target_text} ({state})", "copy", True)
+        return Plan("relink", f"link -> {target_text} ({state})", "link", True)
 
     if destination.is_dir():
         managed = is_managed(destination)

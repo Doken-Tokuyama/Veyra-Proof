@@ -121,7 +121,7 @@ class Step:
     test runner produces — and the gate records it. The release notes are then built
     out of recorded facts rather than out of paragraphs somebody read off a terminal.
     """
-    collect: Callable[[Path], dict] | None = None
+    collect: Callable[[Path], dict | None] | None = None
     """How to read that report, when a step does not write the shared JSON shape."""
     resumable: bool = True
     """Whether the resume ledger may skip this step on an unchanged tree.
@@ -472,16 +472,16 @@ def read_junit_facts(path: Path) -> dict | None:
     time as data, and this refuses to invent a count it cannot find there.
     """
     try:
-        suite = ET.parse(path).getroot()
+        root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         return None
-    if suite.tag != "testsuite":  # a `<testsuites>` wrapper has to be unwrapped
-        suite = suite.find("testsuite")  # type: ignore[assignment]
+    # A `<testsuites>` wrapper has to be unwrapped before its counts can be read.
+    suite = root if root.tag == "testsuite" else root.find("testsuite")
     if suite is None:
         return None
 
     def number(name: str) -> int | None:
-        value = suite.get(name)  # type: ignore[union-attr]
+        value = suite.get(name)
         return int(value) if value is not None and value.strip().isdigit() else None
 
     cases = number("tests")
@@ -490,7 +490,7 @@ def read_junit_facts(path: Path) -> dict | None:
     if cases is None or failed is None or errors is None:
         return None
     skipped = number("skipped") or 0
-    facts = {
+    facts: dict[str, int | float] = {
         "cases": cases,
         "passed": cases - failed - errors - skipped,
         "failed": failed,
@@ -498,7 +498,7 @@ def read_junit_facts(path: Path) -> dict | None:
         "skipped": skipped,
     }
     try:
-        facts["duration_s"] = round(float(suite.get("time") or ""), 2)  # type: ignore[union-attr]
+        facts["duration_s"] = round(float(suite.get("time") or ""), 2)
     except ValueError:
         pass
     return facts
