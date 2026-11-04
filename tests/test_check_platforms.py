@@ -77,7 +77,8 @@ def _green() -> list[dict]:
         _job("py3.13 / macos-latest"),
         _job("py3.10 / windows-latest"),
         _job("py3.13 / windows-latest"),
-        _job("live audit of the demo crate"),
+        _job("live audit of the demo crate / ubuntu-latest"),
+        _job("live audit of the demo crate / macos-latest"),
         _job("account skill copy (advisory)"),
     ]
 
@@ -90,6 +91,48 @@ class TestTheVerdict:
 
         assert problems == []
         assert any("windows-latest: 2 job(s) success" in line for line in confirmed)
+
+    def test_the_live_audit_has_to_run_on_both_audit_platforms(self, check):
+        """A green unit job on macOS is not the real audit running there."""
+        jobs = [
+            job
+            for job in _green()
+            if "live audit" not in job["name"] or "macos" not in job["name"]
+        ]
+
+        problems, confirmed = check.classify(
+            "a" * 40,
+            "CI",
+            _run(),
+            jobs,
+            check.REQUIRED_PLATFORMS,
+            check.REQUIRED_AUDIT_PLATFORMS,
+        )
+
+        assert "macos-latest: live audit success" not in confirmed
+        assert any("live audit did not run on macos-latest" in line for line in problems)
+        assert "ubuntu-latest: live audit success" in confirmed
+
+    def test_a_failed_live_audit_is_not_replaced_by_the_unit_jobs(self, check):
+        """The macOS unit jobs were green; the audit job was not, and that is the claim."""
+        jobs = [
+            _job(job["name"], "failure")
+            if "live audit" in job["name"] and "macos" in job["name"]
+            else job
+            for job in _green()
+        ]
+
+        problems, _ = check.classify(
+            "a" * 40,
+            "CI",
+            _run(),
+            jobs,
+            check.REQUIRED_PLATFORMS,
+            check.REQUIRED_AUDIT_PLATFORMS,
+        )
+
+        assert any("live audit did not run on macos-latest" in line for line in problems)
+        assert any("'failure'" in line and "live audit" in line for line in problems)
 
     def test_no_run_is_refused_with_the_instruction_that_fixes_it(self, check):
         """Nothing has run for this commit, so nothing about it is proven.
@@ -228,6 +271,24 @@ class TestThePromiseAndTheMatrix:
             f"{sorted(set(check.REQUIRED_PLATFORMS) - in_matrix)}"
         )
 
+    def test_the_audit_matrix_covers_macos_and_linux(self, check):
+        """The real audit runs where the release claims it runs, not on one runner."""
+        text = CI_WORKFLOW.read_text(encoding="utf-8")
+        audit = text.split("\n  audit:\n", 1)[1].split("\n  account-skill:\n", 1)[0]
+
+        match = re.search(r"^\s*os:\s*\[([^\]]+)\]", audit, flags=re.MULTILINE)
+        assert match, "the audit job no longer declares an `os:` matrix"
+        assert {item.strip() for item in match.group(1).split(",")} == set(
+            check.REQUIRED_AUDIT_PLATFORMS
+        )
+
+        name = re.search(r"^\s*name:\s*(live audit[^\n]*)$", audit, flags=re.MULTILINE)
+        assert name, "the audit job no longer names itself after the matrix"
+        assert "matrix.os" in name.group(1), name.group(1)
+        assert "veyra-evidence-${{ matrix.os }}-${{ github.run_id }}" in audit, (
+            "the two audit jobs would upload the same artifact name"
+        )
+
     def test_the_default_workflow_is_the_one_that_carries_the_matrix(self, check):
         """The default has to name a real workflow, or nothing is ever found."""
         text = CI_WORKFLOW.read_text(encoding="utf-8")
@@ -305,6 +366,8 @@ def test_live_the_check_reads_this_repositorys_own_ci():
     assert re.search(r"commit     [0-9a-f]{40}", completed.stdout)
     if completed.returncode == 0:
         assert "passed on ubuntu-latest, macos-latest, windows-latest" in completed.stdout
+        assert "live audit confirmed on ubuntu-latest, macos-latest" in completed.stdout
+
 
 
 def test_live_the_commit_that_shipped_a_red_windows_build_is_refused():
@@ -448,6 +511,10 @@ class TestTheCommandLine:
             "ubuntu-latest": ["py3.10", "py3.13"],
             "macos-latest": ["py3.10", "py3.13"],
             "windows-latest": ["py3.10", "py3.13"],
+        }
+        assert facts["audits"] == {
+            "ubuntu-latest": ["live audit of the demo crate / ubuntu-latest"],
+            "macos-latest": ["live audit of the demo crate / macos-latest"],
         }
 
     def test_a_platform_that_failed_is_recorded_as_empty_not_as_absent(

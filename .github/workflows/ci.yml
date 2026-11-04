@@ -42,8 +42,15 @@ jobs:
         run: veyra --version
 
   audit:
-    name: live audit of the demo crate
-    runs-on: ubuntu-latest
+    # The unit matrix already covers Windows. This job runs the real toolchain
+    # against a real crate, so it proves the platforms where that path is
+    # exercised; a macOS-only failure must not first appear after a release.
+    name: live audit of the demo crate / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,7 +84,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: veyra-evidence-${{ github.run_id }}
+          name: veyra-evidence-${{ matrix.os }}-${{ github.run_id }}
           path: tests/fixtures/demo_crate/.veyra/evidence/**
           if-no-files-found: warn
           retention-days: 14

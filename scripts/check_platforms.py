@@ -8,15 +8,18 @@ to, and the fix had to be shipped as 0.4.4. Nothing local can see that. The
 evidence lives on the platform that failed.
 
 So this step reads the evidence instead of producing it. For the exact commit
-being tagged it asks GitHub for the CI run, and requires two things:
+being tagged it asks GitHub for the CI run, and requires three things:
 
 * every job of that run to have concluded ``success`` — a failed, cancelled or
   skipped job is not a pass, and a run still in flight is not evidence yet;
 * every platform this project promises to support to be represented among the
   successful jobs. ``REQUIRED_PLATFORMS`` is that promise, and
   ``tests/test_check_platforms.py`` holds it against the matrix in
-  ``.github/workflows/ci.yml``, so dropping Windows from the matrix fails the
-  suite rather than quietly shrinking what a release proves.
+  ``.github/workflows/ci.yml``, so dropping a platform from the matrix fails the
+  suite rather than quietly shrinking what a release proves;
+* the live audit itself to have run on ``REQUIRED_AUDIT_PLATFORMS``. A unit job
+  passing on macOS is not the same claim as the auditor running against a real
+  crate there, and this check exists to keep those claims apart.
 
 A commit with no run at all is refused too, with the one instruction that fixes
 it: push it, wait for CI, run the gate again. That order is the intended release
@@ -46,10 +49,21 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# The platforms a release claims to have passed on. The README's packaging table
-# and the `Operating System` classifiers say the same thing; the CI matrix is what
-# has to deliver it, and the suite asserts the matrix still covers this list.
+# The platforms a release claims to have passed the *suite* on. The README's
+# packaging table and the `Operating System` classifiers say the same thing; the
+# CI matrix is what has to deliver it, and the suite asserts the matrix still
+# covers this list.
 REQUIRED_PLATFORMS = ("ubuntu-latest", "macos-latest", "windows-latest")
+
+# The platforms where the *real* audit has to have run. These are the claims that
+# need a Rust toolchain and a real crate, not just a Python process running the
+# unit suite; a successful unit job on one of these platforms is not a substitute.
+REQUIRED_AUDIT_PLATFORMS = ("ubuntu-latest", "macos-latest")
+
+# The job-name marker the audit matrix carries. The platform is appended to it in
+# the workflow (``<marker> / <platform>``); requiring both keeps a unit job from
+# being mistaken for the audit.
+AUDIT_MARKER = "live audit of the demo crate"
 
 # The workflow that carries the platform matrix. `publish.yml` runs *after* a tag
 # and cannot be the evidence for cutting one.
@@ -175,6 +189,7 @@ def classify(
     run: dict | None,
     jobs: list[dict],
     required: tuple[str, ...],
+    required_audits: tuple[str, ...] = (),
 ) -> tuple[list[str], list[str]]:
     """Return (problems, confirmed) for one commit's evidence.
 
@@ -224,7 +239,14 @@ def classify(
     # The promise, checked against what actually ran. A job that was cancelled or
     # skipped leaves the platform unproven even when the run as a whole is green.
     for platform in required:
-        on_platform = [job for job in successful if platform in job.get("name", "")]
+        # The audit jobs share the platform name but are a different claim; they
+        # are counted below, under ``required_audits``, not as unit jobs.
+        on_platform = [
+            job
+            for job in successful
+            if platform in job.get("name", "")
+            and AUDIT_MARKER not in job.get("name", "")
+        ]
         if not on_platform:
             problems.append(
                 f"no successful job on {platform}: this release would be the first time "
@@ -240,6 +262,22 @@ def classify(
             )
             tail = f" ({', '.join(versions)})" if versions else ""
             confirmed.append(f"{platform}: {len(on_platform)} job(s) success{tail}")
+
+    # A unit job proves the Python code works there. It does not prove that
+    # cargo, the adapters and the evidence writer worked against a real crate.
+    for platform in required_audits:
+        ran = [
+            job
+            for job in successful
+            if AUDIT_MARKER in job.get("name", "") and platform in job.get("name", "")
+        ]
+        if not ran:
+            problems.append(
+                f"the live audit did not run on {platform}: the suite passing there "
+                "is not evidence that the auditor ran against a real crate"
+            )
+        else:
+            confirmed.append(f"{platform}: live audit success")
 
     return problems, confirmed
 
@@ -291,6 +329,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated platforms that must have a successful job.",
     )
     parser.add_argument(
+        "--require-audit",
+        default=",".join(REQUIRED_AUDIT_PLATFORMS),
+        help=(
+            "Comma-separated platforms where the live audit must have run "
+            f"(default: {', '.join(REQUIRED_AUDIT_PLATFORMS)})."
+        ),
+    )
+    parser.add_argument(
         "--report",
         type=Path,
         default=None,
@@ -300,6 +346,9 @@ def main(argv: list[str] | None = None) -> int:
 
     root = args.root.expanduser().resolve()
     required = tuple(item.strip() for item in args.require.split(",") if item.strip())
+    required_audits = tuple(
+        item.strip() for item in args.require_audit.split(",") if item.strip()
+    )
 
     sha = resolve_commit(root, args.commit or "HEAD")
     if not sha:
@@ -324,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"commit     {sha}")
     print(f"workflow   {args.workflow}")
     print(f"required   {', '.join(required)}")
+    print(f"audit      {', '.join(required_audits) or 'not required'}")
     print(flush=True)
 
     status, runs, err = runs_for(slug, sha, root)
@@ -342,7 +392,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  NOT RUN  gh could not read the jobs of run {run.get('id')}: {err.strip()}", file=sys.stderr)
             return 2
 
-    problems, confirmed = classify(sha, args.workflow, run, jobs, required)
+    problems, confirmed = classify(
+        sha, args.workflow, run, jobs, required, required_audits
+    )
 
     for line in confirmed:
         print(f"  confirmed  {line}")
@@ -362,10 +414,20 @@ def main(argv: list[str] | None = None) -> int:
                         match.group(0)
                         for job in successful
                         if platform in job.get("name", "")
+                        and AUDIT_MARKER not in job.get("name", "")
                         for match in re.finditer(r"py3\.\d+", job.get("name", ""))
                     }
                 )
                 for platform in required
+            },
+            "audits": {
+                platform: sorted(
+                    job.get("name", "")
+                    for job in successful
+                    if AUDIT_MARKER in job.get("name", "")
+                    and platform in job.get("name", "")
+                )
+                for platform in required_audits
             },
             "run": run.get("html_url", "") if run else "",
         }
@@ -381,6 +443,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print(f"  {args.workflow} passed on {', '.join(required)} for {sha[:12]}")
+    if required_audits:
+        print(f"  live audit confirmed on {', '.join(required_audits)}")
     return 0
 
 

@@ -370,10 +370,12 @@ pyinstaller --onefile --name veyra src/veyra_proof/__main__.py
 | Job | What it proves |
 |---|---|
 | `test` | The full test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
-| `audit` | A real audit of the demo crate on a real Rust toolchain, followed by a check that the evidence on disk backs the verdict |
+| `audit` | A real audit of the demo crate on a real Rust toolchain, on Linux and macOS, followed by a check that the evidence on disk backs the verdict |
 | `account-skill` | Whether the Freebuff Desktop account copy of the skill still matches the canonical one — advisory, see below |
 
 The `test` suite mocks `subprocess.run`, so on its own it cannot catch a broken tool invocation. The `audit` job closes that gap: it runs `scripts/ci_assert_evidence.py`, which executes the auditor for real and then requires that every tool reported `OK` has a log on disk *and* a per-tool `result.json` agreeing with the summary on both status and exit code. Two independently written artifacts must tell the same story.
+
+The audit runs on both Linux and macOS. The unit matrix also covers Windows, but a passing Python test there is not evidence that `cargo`, the adapters and the evidence writer worked against a real crate; the two claims are kept apart deliberately, and the release gate now refuses a commit unless the live audit itself ran on both platforms. Each job uploads its own artifact, named after the runner, so the evidence from one platform cannot be mistaken for the other's.
 
 That check has its own tests (`tests/test_ci_assert_evidence.py`), which inject each fault it is meant to catch. A verification script that cannot fail is worse than none: it manufactures the false confidence this project exists to refuse.
 
@@ -404,7 +406,7 @@ Eight steps, all reported whether or not an earlier one failed, so one pass tell
 | Step | What it proves |
 |---|---|
 | `tests` | The suite, which carries the fan-out, version and docs guards |
-| `platforms` | That same suite, on the commit being tagged, as CI actually ran it on Linux, macOS and Windows |
+| `platforms` | That same suite, on the commit being tagged, as CI actually ran it on Linux, macOS and Windows, and the live audit on Linux and macOS |
 | `copies` | Every harness target is the canonical skill |
 | `build` | An sdist and a wheel, then `twine check` on **this version's** artefacts only |
 | `wheel` | That wheel, installed into a throwaway venv, reporting the version it was built as |

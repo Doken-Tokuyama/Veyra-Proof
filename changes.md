@@ -1,3 +1,13 @@
+## Unreleased
+
+- **The live audit is proven on macOS as well as Linux.** The audit job was a
+single Linux runner, so a macOS-only failure in the real toolchain would first
+appear after a release. It now runs as an `ubuntu-latest` / `macos-latest`
+matrix with one evidence artifact per platform, and the release gate refuses a
+commit unless a successful `live audit ... / <platform>` job exists on both. A
+passing unit job on macOS is not evidence that the auditor ran there; the gate
+now distinguishes the two. Windows remains covered by the unit matrix.
+
 ## What changed in v0.7.1
 
 - **A defective workspace is proven to be rejected, not only reported.** The live

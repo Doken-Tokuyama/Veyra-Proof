@@ -218,11 +218,12 @@ back: when you edit canonical, copy the file across in the same change.
 | `python3 scripts/check_account_skill.py` | account copy current, or no store | account copy lags | usage error |
 | `python3 scripts/pre_release.py --tag vX.Y.Z --title "..."` | tagged (annotated, `vX.Y.Z — title`) | the release was refused | misuse |
 | `python3 scripts/check_wheel_version.py` | the built wheel installs and reports its own version | a wheel for another version, or one that disagrees with itself | misuse (no `pyproject.toml`) |
-| `python3 scripts/check_platforms.py` | the commit's CI passed on Linux, macOS and Windows | a platform's job failed, was skipped or cancelled, or has no run yet | `gh` cannot read the run (not a pass) |
+| `python3 scripts/check_platforms.py` | the commit's CI passed on Linux, macOS and Windows, with the live audit on Linux and macOS | a platform's job failed, was skipped or cancelled, the live audit is missing, or there is no run yet | `gh` cannot read the run (not a pass) |
 | `python3 scripts/release_notes.py --title "…"` | notes written from the gate's measurements | the record does not cover this tree, or there is nothing to release | misuse, or a tree git cannot fingerprint |
 
 The release path runs the suite, that same suite on the other platforms as the CI
-run for this commit actually ran it, the copy checks, a build validated by
+run for this commit actually ran it, the live audit on both Linux and macOS, the
+copy checks, a build validated by
 `twine check`, the built wheel installed into a throwaway venv where it has to
 report the version it was built as, a real audit, and the release notes generated
 from what those steps measured, then tags — it refuses a
