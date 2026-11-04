@@ -187,6 +187,7 @@ class TestTheLimitsAreWrittenDown:
         for rule in blockers:
             assert rule in readme, f"{rule} promised in the README but undocumented"
         assert all(t.id for t in all_tools())
+
     def test_ci_assert_evidence_rejects_an_evidence_directory(self, tmp_path):
         """Documented shape is a workspace; handing it evidence must fail loudly."""
         import importlib.util

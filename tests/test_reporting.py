@@ -195,12 +195,7 @@ def test_anti_theater_guard_clause_is_not_a_constant_stub(tmp_path):
     src = tmp_path / "src"
     src.mkdir()
     (src / "lib.rs").write_text(
-        "pub fn clamp_low(n: i32) -> i32 {\n"
-        "    if n < 0 {\n"
-        "        return 0;\n"
-        "    }\n"
-        "    n\n"
-        "}\n",
+        "pub fn clamp_low(n: i32) -> i32 {\n    if n < 0 {\n        return 0;\n    }\n    n\n}\n",
         encoding="utf-8",
     )
     findings = analyze_rust_sources(tmp_path, [], PolicyConfig())

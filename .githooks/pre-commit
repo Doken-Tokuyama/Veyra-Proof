@@ -14,4 +14,5 @@ else
 fi
 
 "$python" -m ruff check src tests scripts
+"$python" -m ruff format --check src tests scripts
 "$python" -m mypy

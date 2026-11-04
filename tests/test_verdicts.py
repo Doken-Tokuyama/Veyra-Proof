@@ -65,7 +65,7 @@ NIGHTLY_STDERR = (
     "1 | #![feature(test)]\n"
     "  | ^^^^^^^^^^^^^^^^^\n"
     "\n"
-    "error: could not compile `regex-syntax` (bench \"bench\") due to 1 previous error\n"
+    'error: could not compile `regex-syntax` (bench "bench") due to 1 previous error\n'
     "warning: build failed, waiting for other jobs to finish...\n"
 )
 
@@ -257,6 +257,7 @@ class TestCargoCheckNightlyFallback:
     def test_both_attempts_stay_in_the_evidence(self, tmp_path):
         runner = self._runner()
         result = CargoCheckTool().run(_context(tmp_path, runner))
+        assert result.stdout_path is not None
         log = Path(result.stdout_path).read_text(encoding="utf-8")
         assert "nightly-only feature attributes" in log
         assert "Finished dev profile" in log
@@ -458,9 +459,7 @@ class TestFailOnNone:
         ]
 
     def test_fail_on_none_accepts_despite_blocker_findings(self):
-        decision = decide(
-            self._results(), fail_on="none", required_tool_ids=["veyra-anti-theater"]
-        )
+        decision = decide(self._results(), fail_on="none", required_tool_ids=["veyra-anti-theater"])
         assert decision.decision == "ACCEPTED"
         assert decision.exit_code == 0
 
@@ -545,36 +544,36 @@ class TestTheRunSaysWhereItsTimeWent:
         assert "total in tools: 425.5s of 444.3s wall" in text
 
     def test_a_tool_that_records_no_time_is_not_hidden(self, tmp_path):
-            """A skipped tool and a tool whose duration vanished must read differently.
-    
-            A flat 0.0 was the original bug. Listing a skipped tool beside it would
-            teach the reader to ignore the line that matters.
-            """
-            from veyra_proof.models import ToolResult
-            from veyra_proof.reporting import render_timing, timing_accounting
-    
-            def make(tool_id, status):
-                return ToolResult(
-                    tool_id=tool_id,
-                    display_name=tool_id,
-                    status=status,
-                    severity="info",
-                    command=None,
-                    exit_code=None,
-                    started_at="2026-01-01T00:00:00Z",
-                    finished_at="2026-01-01T00:00:01Z",
-                    duration_seconds=0.0,
-                    stdout_path=None,
-                    stderr_path=None,
-                    findings=[],
-                    summary="",
-                )
-    
-            timing = timing_accounting([make("fuzz", "SKIPPED"), make("mystery", "OK")])
-            text = render_timing(timing)
-            assert "did not run: fuzz" in text
-            assert "ran without recording a duration: mystery" in text
-            assert {e["tool"] for e in timing["tools_without_timing"]} == {"fuzz", "mystery"}
+        """A skipped tool and a tool whose duration vanished must read differently.
+
+        A flat 0.0 was the original bug. Listing a skipped tool beside it would
+        teach the reader to ignore the line that matters.
+        """
+        from veyra_proof.models import ToolResult
+        from veyra_proof.reporting import render_timing, timing_accounting
+
+        def make(tool_id, status):
+            return ToolResult(
+                tool_id=tool_id,
+                display_name=tool_id,
+                status=status,
+                severity="info",
+                command=None,
+                exit_code=None,
+                started_at="2026-01-01T00:00:00Z",
+                finished_at="2026-01-01T00:00:01Z",
+                duration_seconds=0.0,
+                stdout_path=None,
+                stderr_path=None,
+                findings=[],
+                summary="",
+            )
+
+        timing = timing_accounting([make("fuzz", "SKIPPED"), make("mystery", "OK")])
+        text = render_timing(timing)
+        assert "did not run: fuzz" in text
+        assert "ran without recording a duration: mystery" in text
+        assert {e["tool"] for e in timing["tools_without_timing"]} == {"fuzz", "mystery"}
 
     def test_the_timing_reaches_the_report(self, tmp_path):
         from veyra_proof.cli import main
@@ -586,9 +585,7 @@ class TestTheRunSaysWhereItsTimeWent:
         )
         (crate / "src" / "lib.rs").write_text("pub fn f() -> u8 { 1 }\n", encoding="utf-8")
 
-        exit_code = main(
-            ["audit", str(crate), "--profile", "quick", "--exclude", "veyra-e2e"]
-        )
+        exit_code = main(["audit", str(crate), "--profile", "quick", "--exclude", "veyra-e2e"])
         evidence = sorted((crate / ".veyra" / "evidence").iterdir())[-1]
         report = json.loads((evidence / "report.json").read_text(encoding="utf-8"))
         manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
@@ -661,9 +658,7 @@ class TestReproducibleBuildIsAPolicyDecision:
         result = self._run(tmp_path, policy=PolicyConfig(require_reproducible_build=True))
         assert result.findings[0].severity == "error"
         assert "policy.require_reproducible_build=true" in result.summary
-        decision = decide(
-            [result], fail_on="error", required_tool_ids=["cargo-check"]
-        )
+        decision = decide([result], fail_on="error", required_tool_ids=["cargo-check"])
         assert decision.decision == "REJECTED"
 
     def test_the_knob_is_off_by_default_and_read_from_veyra_toml(self, tmp_path):
@@ -709,6 +704,7 @@ class TestAnObservedFactBlocksWhenTheToolIsInconclusiveAndPolicySaysSo:
     requirement the decision has to see it — counting only results whose status
     is FINDINGS would let that observation through the back door of the status.
     """
+
     def _results(self, severity):
         from veyra_proof.models import Finding, ToolResult
 
@@ -813,9 +809,7 @@ class TestCargoAuditRunsWhenTheLockAppears:
             def run(self, command, **kwargs):  # pragma: no cover - must not run
                 raise AssertionError("cargo-audit ran without a lockfile")
 
-        result = self._audit_tool().run(
-            _context(tmp_path, Runner(), packages=packages)
-        )
+        result = self._audit_tool().run(_context(tmp_path, Runner(), packages=packages))
         assert result.status == "SKIPPED"
         assert "not a pass" in result.summary
         assert any(f.rule == "unlocked-dependencies" for f in result.findings)

@@ -95,9 +95,7 @@ class TestTheVerdict:
     def test_the_live_audit_has_to_run_on_both_audit_platforms(self, check):
         """A green unit job on macOS is not the real audit running there."""
         jobs = [
-            job
-            for job in _green()
-            if "live audit" not in job["name"] or "macos" not in job["name"]
+            job for job in _green() if "live audit" not in job["name"] or "macos" not in job["name"]
         ]
 
         problems, confirmed = check.classify(
@@ -140,9 +138,7 @@ class TestTheVerdict:
         The refusal has to be actionable: the release flow is push, let CI finish,
         then tag — and the person reading it has not done that yet.
         """
-        problems, confirmed = check.classify(
-            "a" * 40, "CI", None, [], check.REQUIRED_PLATFORMS
-        )
+        problems, confirmed = check.classify("a" * 40, "CI", None, [], check.REQUIRED_PLATFORMS)
 
         assert confirmed == []
         assert len(problems) == 1
@@ -156,9 +152,7 @@ class TestTheVerdict:
         message; saying nothing would let a release out on an unfinished run.
         """
         run = _run(status="in_progress", conclusion=None)
-        problems, confirmed = check.classify(
-            "a" * 40, "CI", run, [], check.REQUIRED_PLATFORMS
-        )
+        problems, confirmed = check.classify("a" * 40, "CI", run, [], check.REQUIRED_PLATFORMS)
 
         assert confirmed == []
         assert len(problems) == 1
@@ -174,9 +168,7 @@ class TestTheVerdict:
         jobs = [dict(job, html_url=f"https://example.test/jobs/{job['name']}") for job in jobs]
         run = _run(conclusion="failure")
 
-        problems, confirmed = check.classify(
-            "a" * 40, "CI", run, jobs, check.REQUIRED_PLATFORMS
-        )
+        problems, confirmed = check.classify("a" * 40, "CI", run, jobs, check.REQUIRED_PLATFORMS)
 
         assert "ubuntu-latest: 2 job(s) success" in " ".join(confirmed)
         failed = [line for line in problems if line.startswith("job '")]
@@ -184,9 +176,9 @@ class TestTheVerdict:
         assert "py3.10 / windows-latest" in failed[0]
         assert "https://example.test/jobs/py3.10 / windows-latest" in failed[0]
         assert any("concluded 'failure'" in line for line in problems)
-        assert any(
-            "no successful job on windows-latest" in line for line in problems
-        ), "the missing platform must be named on its own, not only as a failed job"
+        assert any("no successful job on windows-latest" in line for line in problems), (
+            "the missing platform must be named on its own, not only as a failed job"
+        )
 
     def test_a_cancelled_job_is_not_a_pass(self, check):
         """Cancelled, skipped and timed-out all leave a platform unproven."""
@@ -199,16 +191,12 @@ class TestTheVerdict:
             _job("py3.13 / windows-latest"),
         ]
 
-        problems, _ = check.classify(
-            "a" * 40, "CI", _run(), jobs, check.REQUIRED_PLATFORMS
-        )
+        problems, _ = check.classify("a" * 40, "CI", _run(), jobs, check.REQUIRED_PLATFORMS)
 
         assert any("'cancelled'" in line and "py3.10 / windows-latest" in line for line in problems)
 
     def test_a_run_with_no_jobs_proves_nothing(self, check):
-        problems, _ = check.classify(
-            "a" * 40, "CI", _run(), [], check.REQUIRED_PLATFORMS
-        )
+        problems, _ = check.classify("a" * 40, "CI", _run(), [], check.REQUIRED_PLATFORMS)
 
         assert any("reports no jobs" in line for line in problems)
         assert len([line for line in problems if "no successful job on" in line]) == 3
@@ -224,9 +212,7 @@ class TestTheVerdict:
 
     def test_the_confirmation_says_which_python_versions_ran(self, check):
         """`py3.10 / windows-latest` and `py3.13 / windows-latest` are not the same claim."""
-        _, confirmed = check.classify(
-            "a" * 40, "CI", _run(), _green(), check.REQUIRED_PLATFORMS
-        )
+        _, confirmed = check.classify("a" * 40, "CI", _run(), _green(), check.REQUIRED_PLATFORMS)
 
         assert "windows-latest: 2 job(s) success (py3.10, py3.13)" in confirmed
 
@@ -314,8 +300,7 @@ class TestThePromiseAndTheMatrix:
         )
         assert template, "the matrix job no longer names itself after matrix.python"
         assert "matrix.os" in template.group(1), (
-            "the platform has to be part of the job name the check reads: "
-            f"{template.group(1)!r}"
+            f"the platform has to be part of the job name the check reads: {template.group(1)!r}"
         )
 
 
@@ -369,7 +354,6 @@ def test_live_the_check_reads_this_repositorys_own_ci():
         assert "live audit confirmed on ubuntu-latest, macos-latest" in completed.stdout
 
 
-
 def test_live_the_commit_that_shipped_a_red_windows_build_is_refused():
     """v0.4.3: the release the step exists for.
 
@@ -419,9 +403,7 @@ def test_live_a_commit_github_has_never_seen_is_refused(tmp_path: Path):
     ):
         subprocess.run(["git", *argv], cwd=repo, check=True, capture_output=True)
 
-    completed = _live(
-        "--repo", "Doken-Tokuyama/Veyra-Proof", root=repo
-    )
+    completed = _live("--repo", "Doken-Tokuyama/Veyra-Proof", root=repo)
 
     assert completed.returncode == 1, completed.stdout
     assert "no CI run exists" in completed.stdout
@@ -429,7 +411,9 @@ def test_live_a_commit_github_has_never_seen_is_refused(tmp_path: Path):
 
 
 class TestTheCommandLine:
-    def test_an_unresolvable_commit_is_misuse_not_a_verdict(self, check, tmp_path, capsys, monkeypatch):
+    def test_an_unresolvable_commit_is_misuse_not_a_verdict(
+        self, check, tmp_path, capsys, monkeypatch
+    ):
         """A typo must not read as "the platforms failed"."""
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: None)
 
@@ -469,7 +453,10 @@ class TestTheCommandLine:
     def test_a_red_run_exits_one_and_says_the_tag_was_refused(
         self, check, tmp_path, capsys, monkeypatch
     ):
-        jobs = [_job(job["name"], "failure" if "windows" in job["name"] else "success") for job in _green()]
+        jobs = [
+            _job(job["name"], "failure" if "windows" in job["name"] else "success")
+            for job in _green()
+        ]
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: "b" * 40)
         monkeypatch.setattr(check, "repo_slug", lambda root: "owner/name")
         monkeypatch.setattr(
@@ -483,9 +470,7 @@ class TestTheCommandLine:
         assert code == 1
         assert "the tag was refused" in out
 
-    def test_the_report_states_the_commit_platforms_and_jobs(
-        self, check, tmp_path, monkeypatch
-    ):
+    def test_the_report_states_the_commit_platforms_and_jobs(self, check, tmp_path, monkeypatch):
         """What the gate records, so a release note never restates it by hand.
 
         Asserted here rather than in the notes generator for the reason the notes were
@@ -523,8 +508,7 @@ class TestTheCommandLine:
         """Absence and failure are different claims, so the record keeps both."""
         report = tmp_path / "reports" / "platforms.json"
         jobs = [
-            _job(job["name"], "failure") if "windows" in job["name"] else job
-            for job in _green()
+            _job(job["name"], "failure") if "windows" in job["name"] else job for job in _green()
         ]
         monkeypatch.setattr(check, "resolve_commit", lambda root, ref: "b" * 40)
         monkeypatch.setattr(check, "repo_slug", lambda root: "owner/name")

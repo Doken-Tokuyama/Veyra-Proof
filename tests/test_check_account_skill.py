@@ -90,9 +90,7 @@ def _write_store(store: Path, files: dict[str, str]) -> Path:
     """A store holding one snapshot and the projection the app derives from it."""
     store.mkdir(parents=True, exist_ok=True)
     (store / OWNER).mkdir(parents=True, exist_ok=True)
-    (store / OWNER / "current.json").write_text(
-        json.dumps(_snapshot(files)), encoding="utf-8"
-    )
+    (store / OWNER / "current.json").write_text(json.dumps(_snapshot(files)), encoding="utf-8")
     projection = store / OWNER / REVISION / SKILL_NAME
     projection.mkdir(parents=True, exist_ok=True)
     for name, body in files.items():
@@ -228,9 +226,7 @@ def test_absent_store_is_not_drift(check, tmp_path, capsys) -> None:
     assert "no account store" in out
 
 
-def test_a_store_holding_no_copy_of_this_skill_is_not_drift(
-    check, tmp_path, capsys
-) -> None:
+def test_a_store_holding_no_copy_of_this_skill_is_not_drift(check, tmp_path, capsys) -> None:
     store = tmp_path / "store"
     (store / OWNER).mkdir(parents=True)
     (store / OWNER / "current.json").write_text(
@@ -244,9 +240,7 @@ def test_a_store_holding_no_copy_of_this_skill_is_not_drift(
     assert "not in this snapshot" in out
 
 
-def test_a_missing_canonical_skill_is_a_usage_error_not_drift(
-    check, tmp_path, capsys
-) -> None:
+def test_a_missing_canonical_skill_is_a_usage_error_not_drift(check, tmp_path, capsys) -> None:
     """Exit 1 means drift. A checker that cannot read the source has not found any.
 
     Reporting this as 1 would let a broken checkout wear the verdict of a stale
@@ -264,9 +258,7 @@ def test_a_missing_canonical_skill_is_a_usage_error_not_drift(
     assert "OLDER" not in captured.out and "DIFFERS" not in captured.out
 
 
-def test_an_unreadable_snapshot_is_skipped_but_still_reported(
-    check, tmp_path, capsys
-) -> None:
+def test_an_unreadable_snapshot_is_skipped_but_still_reported(check, tmp_path, capsys) -> None:
     """A corrupt cache is not a claim about the skill, so it cannot fail a check."""
     store = tmp_path / "store"
     (store / OWNER).mkdir(parents=True)
@@ -392,11 +384,7 @@ def test_a_flattened_step_is_seen_by_the_policy_guard() -> None:
     green — while deleting the exit-code mapping that keeps a stale cache from
     failing the build.
     """
-    flat = (
-        "steps:\n"
-        f"  - name: {CI_STEP_NAME}\n"
-        "    run: python scripts/check_account_skill.py\n"
-    )
+    flat = f"steps:\n  - name: {CI_STEP_NAME}\n    run: python scripts/check_account_skill.py\n"
     body = _ci_step_body(CI_STEP_NAME, flat)
 
     assert "scripts/check_account_skill.py" in body, "the flattened step still runs it"

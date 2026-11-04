@@ -167,9 +167,7 @@ def test_fuzz_without_declared_targets_refuses_to_invent_them(tmp_path) -> None:
 
 def test_fuzz_crash_is_a_blocker(tmp_path) -> None:
     (tmp_path / "fuzz").mkdir()
-    runner = ScriptedRunner(
-        [result(exit_code=1, stderr="ERROR: libFuzzer: deadly signal\n")]
-    )
+    runner = ScriptedRunner([result(exit_code=1, stderr="ERROR: libFuzzer: deadly signal\n")])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=["parse"]))
 
     tool_result = CargoFuzzTool().run(ctx)
@@ -192,9 +190,7 @@ def test_fuzz_timeout_is_inconclusive(tmp_path) -> None:
 
 def test_fuzz_target_that_does_not_exist_is_skipped(tmp_path) -> None:
     (tmp_path / "fuzz").mkdir()
-    runner = ScriptedRunner(
-        [result(exit_code=1, stderr="error: target `parse` does not exist\n")]
-    )
+    runner = ScriptedRunner([result(exit_code=1, stderr="error: target `parse` does not exist\n")])
     ctx = make_context(tmp_path, runner, fuzz=FuzzConfig(targets=["parse"]))
 
     tool_result = CargoFuzzTool().run(ctx)
@@ -219,12 +215,8 @@ def test_kani_without_harnesses_skips_before_running(tmp_path) -> None:
 def test_kani_counterexample_is_findings(tmp_path) -> None:
     source = tmp_path / "src"
     source.mkdir()
-    (source / "lib.rs").write_text(
-        "#[kani::proof]\nfn proof() {}\n", encoding="utf-8"
-    )
-    runner = ScriptedRunner(
-        [result(exit_code=1, stdout="Failed Checks: assertion failed\n")]
-    )
+    (source / "lib.rs").write_text("#[kani::proof]\nfn proof() {}\n", encoding="utf-8")
+    runner = ScriptedRunner([result(exit_code=1, stdout="Failed Checks: assertion failed\n")])
     ctx = make_context(tmp_path, runner)
 
     tool_result = KaniTool().run(ctx)
@@ -236,9 +228,7 @@ def test_kani_counterexample_is_findings(tmp_path) -> None:
 def test_kani_timeout_is_inconclusive(tmp_path) -> None:
     source = tmp_path / "src"
     source.mkdir()
-    (source / "lib.rs").write_text(
-        "#[kani::proof]\nfn proof() {}\n", encoding="utf-8"
-    )
+    (source / "lib.rs").write_text("#[kani::proof]\nfn proof() {}\n", encoding="utf-8")
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
     ctx = make_context(tmp_path, runner)
 
@@ -251,12 +241,8 @@ def test_kani_timeout_is_inconclusive(tmp_path) -> None:
 
 
 def test_llvm_cov_below_the_configured_minimum_is_findings(tmp_path) -> None:
-    runner = ScriptedRunner(
-        [result(), result(stdout="lines......: 50.00%\nbranches...: 40.00%\n")]
-    )
-    ctx = make_context(
-        tmp_path, runner, coverage=CoverageConfig(minimum_line_percent=90.0)
-    )
+    runner = ScriptedRunner([result(), result(stdout="lines......: 50.00%\nbranches...: 40.00%\n")])
+    ctx = make_context(tmp_path, runner, coverage=CoverageConfig(minimum_line_percent=90.0))
 
     tool_result = LlvmCovTool().run(ctx)
 
@@ -266,9 +252,7 @@ def test_llvm_cov_below_the_configured_minimum_is_findings(tmp_path) -> None:
 
 def test_llvm_cov_unparsed_summary_is_not_silent(tmp_path) -> None:
     runner = ScriptedRunner([result(), result(stdout="no percentages here\n")])
-    ctx = make_context(
-        tmp_path, runner, coverage=CoverageConfig(minimum_line_percent=90.0)
-    )
+    ctx = make_context(tmp_path, runner, coverage=CoverageConfig(minimum_line_percent=90.0))
 
     tool_result = LlvmCovTool().run(ctx)
 
@@ -317,9 +301,7 @@ def test_mutants_without_paths_skips_before_running(tmp_path) -> None:
 
 def test_mutants_survivor_is_findings(tmp_path) -> None:
     runner = ScriptedRunner([result(stdout="MISSED  src/lib.rs:12:5\n")])
-    ctx = make_context(
-        tmp_path, runner, mutants=MutantsConfig(paths=["src/lib.rs"])
-    )
+    ctx = make_context(tmp_path, runner, mutants=MutantsConfig(paths=["src/lib.rs"]))
 
     tool_result = CargoMutantsTool().run(ctx)
 
@@ -329,9 +311,7 @@ def test_mutants_survivor_is_findings(tmp_path) -> None:
 
 def test_mutants_timeout_is_inconclusive(tmp_path) -> None:
     runner = ScriptedRunner([result(exit_code=None, timed_out=True)])
-    ctx = make_context(
-        tmp_path, runner, mutants=MutantsConfig(paths=["src/lib.rs"])
-    )
+    ctx = make_context(tmp_path, runner, mutants=MutantsConfig(paths=["src/lib.rs"]))
 
     tool_result = CargoMutantsTool().run(ctx)
 
@@ -408,9 +388,7 @@ def test_miri_timeout_is_inconclusive(tmp_path) -> None:
 
 
 def test_deny_diagnostics_are_parsed_into_findings(tmp_path) -> None:
-    runner = ScriptedRunner(
-        [result(exit_code=1, stdout="error[unlicensed]: missing license\n")]
-    )
+    runner = ScriptedRunner([result(exit_code=1, stdout="error[unlicensed]: missing license\n")])
     ctx = make_context(tmp_path, runner)
 
     tool_result = CargoDenyTool().run(ctx)
@@ -575,15 +553,11 @@ def test_codeql_runs_against_a_local_database_when_configured(tmp_path) -> None:
 
 
 def test_parse_test_failures_reads_crlf_output() -> None:
-    assert [f.rule for f in parse_test_failures("test add ... FAILED\r\n")] == [
-        "test-failure"
-    ]
+    assert [f.rule for f in parse_test_failures("test add ... FAILED\r\n")] == ["test-failure"]
 
 
 def test_parse_ignored_tests_reads_crlf_output() -> None:
-    assert [f.rule for f in parse_ignored_tests("test slow ... ignored\r\n")] == [
-        "ignored-test"
-    ]
+    assert [f.rule for f in parse_ignored_tests("test slow ... ignored\r\n")] == ["ignored-test"]
 
 
 def test_parse_deny_output_reads_crlf_output() -> None:

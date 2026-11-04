@@ -104,7 +104,9 @@ def test_a_probe_that_answers_reports_installed_with_its_version(tmp_path):
 
 def test_an_oserror_is_absent_not_broken(tmp_path):
     # Nothing to exec: the binary genuinely is not there.
-    det = classify(tmp_path, probe(exit_code=None, error="FileNotFoundError: [Errno 2] No such file"))
+    det = classify(
+        tmp_path, probe(exit_code=None, error="FileNotFoundError: [Errno 2] No such file")
+    )
     assert det.status == "MISSING"
     assert det.available is False
     assert "not installed" in det.message

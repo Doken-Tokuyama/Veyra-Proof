@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 
-from veyra_proof.models import DetectionResult
+from veyra_proof.models import DetectionResult, InstallPlan, ToolResult
 from veyra_proof.tools.base import AuditContext, Tool, classify_from_command, utc_now_iso
 
 
@@ -23,23 +23,29 @@ class SemgrepTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         path = shutil.which("semgrep")
         if not path:
-            return DetectionResult(self.id, "MISSING", False, message="semgrep not on PATH (not auto-installed)")
-        det = self.detect_via_version(context, ["semgrep", "--version"], absent_message="semgrep not executable")
+            return DetectionResult(
+                self.id, "MISSING", False, message="semgrep not on PATH (not auto-installed)"
+            )
+        det = self.detect_via_version(
+            context, ["semgrep", "--version"], absent_message="semgrep not executable"
+        )
         if det.available:
             det.path = path
         return det
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return []
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         include = {x.strip() for x in context.include}
         if "semgrep" not in include:
-            return self.skipped(context, "semgrep not included explicitly; never auto-run without --include semgrep")
+            return self.skipped(
+                context, "semgrep not included explicitly; never auto-run without --include semgrep"
+            )
         # Only local config
         local_configs = [
             context.root / ".semgrep.yml",
@@ -48,7 +54,9 @@ class SemgrepTool(Tool):
         ]
         config = next((p for p in local_configs if p.is_file()), None)
         if config is None:
-            return self.skipped(context, "no local Semgrep config found; refusing to download remote rules")
+            return self.skipped(
+                context, "no local Semgrep config found; refusing to download remote rules"
+            )
         cmd = ["semgrep", "--config", str(config), "--error", str(context.root)]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
@@ -90,23 +98,37 @@ class CodeQLTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         path = shutil.which("codeql")
         if not path:
-            return DetectionResult(self.id, "MISSING", False, message="codeql not on PATH (not auto-installed)")
-        det = self.detect_via_version(context, ["codeql", "version"], absent_message="codeql not executable")
+            return DetectionResult(
+                self.id, "MISSING", False, message="codeql not on PATH (not auto-installed)"
+            )
+        det = self.detect_via_version(
+            context, ["codeql", "version"], absent_message="codeql not executable"
+        )
         if det.available:
             det.path = path
         return det
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         db = context.config.codeql.database
         suite = context.config.codeql.query_suite
         if not db or not suite:
             return []
-        return [["codeql", "database", "analyze", db, suite, "--format=sarif-latest", "--output=codeql.sarif"]]
+        return [
+            [
+                "codeql",
+                "database",
+                "analyze",
+                db,
+                suite,
+                "--format=sarif-latest",
+                "--output=codeql.sarif",
+            ]
+        ]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         include = {x.strip() for x in context.include}
         if "codeql" not in include and "codeql" not in set(context.config.tools.enable):
             return self.skipped(

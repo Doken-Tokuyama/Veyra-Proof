@@ -216,9 +216,7 @@ def test_geiger_empty_run_output_with_exit_1_is_error(tmp_path) -> None:
     assert tool_result.status == "ERROR"
 
 
-GEIGER_UNSAFE_OUTPUT = (
-    "Functions using unsafe: 3 / 10\nExpressions using unsafe: 7 / 40\n"
-)
+GEIGER_UNSAFE_OUTPUT = "Functions using unsafe: 3 / 10\nExpressions using unsafe: 7 / 40\n"
 
 
 def test_geiger_deny_unsafe_still_reports_findings(tmp_path) -> None:
@@ -273,19 +271,26 @@ def test_semver_configured_git_baseline_is_passed_to_the_tool(tmp_path) -> None:
 
     tool_result = SemverChecksTool().run(ctx)
 
-    assert runner.calls == [[
-        "cargo", "semver-checks", "check-release",
-        "--baseline-rev", "v0.9.1", "--release-type", "patch",
-    ]]
+    assert runner.calls == [
+        [
+            "cargo",
+            "semver-checks",
+            "check-release",
+            "--baseline-rev",
+            "v0.9.1",
+            "--release-type",
+            "patch",
+        ]
+    ]
     assert tool_result.status == "OK"
 
 
 BAD_BASELINE_OUTPUT = (
     "     Cloning vNOPE-9.9.9\n"
-    "error: couldn't parse revision: \"vNOPE-9.9.9^{tree}\"\n"
+    'error: couldn\'t parse revision: "vNOPE-9.9.9^{tree}"\n'
     "\n"
     "Caused by:\n"
-    "    The ref partially named \"vNOPE-9.9.9\" could not be found\n"
+    '    The ref partially named "vNOPE-9.9.9" could not be found\n'
 )
 
 
@@ -340,9 +345,7 @@ def test_every_evidence_log_is_pinned_by_its_digest(tmp_path) -> None:
 
     for name in ("stdout.log", "stderr.log"):
         path = ctx.evidence_dir / "tools" / "geiger" / name
-        assert tool_result.artifact_hashes[name] == hashlib.sha256(
-            path.read_bytes()
-        ).hexdigest()
+        assert tool_result.artifact_hashes[name] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_a_skipped_tool_pins_the_reason_and_the_output(tmp_path) -> None:
@@ -353,9 +356,7 @@ def test_a_skipped_tool_pins_the_reason_and_the_output(tmp_path) -> None:
 
     for name in ("stderr.log", "skip.txt"):
         path = ctx.evidence_dir / "tools" / "semver-checks" / name
-        assert tool_result.artifact_hashes[name] == hashlib.sha256(
-            path.read_bytes()
-        ).hexdigest()
+        assert tool_result.artifact_hashes[name] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path) -> None:
@@ -370,7 +371,9 @@ def test_skip_after_a_run_keeps_the_raw_tool_output_as_evidence(tmp_path) -> Non
     tool_result = SemverChecksTool().run(ctx)
 
     assert tool_result.status == "SKIPPED"
+    assert tool_result.stdout_path is not None
     kept = Path(tool_result.stdout_path).read_text(encoding="utf-8")
+    assert tool_result.stderr_path is not None
     kept += Path(tool_result.stderr_path).read_text(encoding="utf-8")
     assert "not found in registry" in kept, (
         "the raw output that justified the skip was overwritten by the reason"
@@ -393,10 +396,8 @@ def test_skip_without_running_records_the_reason_as_the_log(tmp_path) -> None:
     assert runner.calls == [], "the skip has to happen before any command runs"
     reason = ctx.evidence_dir / "tools" / "vet" / "skip.txt"
     assert "supply-chain/config.toml" in reason.read_text(encoding="utf-8")
-    assert (
-        Path(tool_result.stdout_path).read_text(encoding="utf-8").strip()
-        == tool_result.summary
-    )
+    assert tool_result.stdout_path is not None
+    assert Path(tool_result.stdout_path).read_text(encoding="utf-8").strip() == tool_result.summary
 
 
 def test_semver_real_violation_is_findings_even_with_cannot_in_lint_name(tmp_path) -> None:

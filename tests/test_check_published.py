@@ -243,7 +243,12 @@ def test_the_published_payload_is_compared_member_by_member(check, dist, tmp_pat
     Two builds of one commit are not byte-identical (a zip stores each member's
     timestamp), so a check comparing whole files would fail a perfectly good release.
     """
-    index = Index(files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2), f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2)})
+    index = Index(
+        files={
+            f"/files/{WHEEL}": _zip(PAYLOAD, when=2),
+            f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2),
+        }
+    )
     index.release = index.release_payload([WHEEL, SDIST])
     report = tmp_path / "published.json"
     try:
@@ -315,7 +320,9 @@ def test_a_served_file_this_checkout_cannot_show_fails(check, dist, tmp_path, ca
     assert other in out
 
 
-def test_a_version_the_index_does_not_have_passes_and_says_so(check, dist, tmp_path, capsys) -> None:
+def test_a_version_the_index_does_not_have_passes_and_says_so(
+    check, dist, tmp_path, capsys
+) -> None:
     """Publishing happens after the gate, so this is the normal answer at tag time.
 
     It passes without claiming anything: the facts say `published: false`, which is what
@@ -415,7 +422,9 @@ def test_a_digest_that_does_not_describe_the_file_is_caught(check, dist, tmp_pat
     assert "does not describe the file it served" in out
 
 
-def test_an_artifact_that_cannot_be_read_is_a_failure_not_a_skip(check, dist, tmp_path, capsys) -> None:
+def test_an_artifact_that_cannot_be_read_is_a_failure_not_a_skip(
+    check, dist, tmp_path, capsys
+) -> None:
     """A file this check cannot open cannot be compared, so it cannot be cleared."""
     (dist / "dist" / WHEEL).write_bytes(b"not an archive at all\n")
     index = Index(files={f"/files/{WHEEL}": b"neither is this\n"})
@@ -487,7 +496,12 @@ def test_a_difference_on_the_released_tree_is_not_explained_away(
 
 def test_it_runs_as_a_script(dist, tmp_path) -> None:
     """The gate invokes it as a subprocess, so that path is the one to check."""
-    index = Index(files={f"/files/{WHEEL}": _zip(PAYLOAD, when=4), f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=4)})
+    index = Index(
+        files={
+            f"/files/{WHEEL}": _zip(PAYLOAD, when=4),
+            f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=4),
+        }
+    )
     index.release = index.release_payload([WHEEL, SDIST])
     report = tmp_path / "published.json"
     try:
@@ -542,7 +556,10 @@ def test_the_published_files_are_traced_to_the_released_commit(
 ) -> None:
     """Provenance: which commit the world is installing, and how it was named."""
     index = Index(
-        files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2), f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2)}
+        files={
+            f"/files/{WHEEL}": _zip(PAYLOAD, when=2),
+            f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2),
+        }
     )
     index.release = index.release_payload([WHEEL, SDIST])
     report = tmp_path / "published.json"
@@ -608,10 +625,7 @@ def test_a_member_the_released_commit_does_not_have_fails(check, dist, tmp_path,
 
     out = capsys.readouterr().out
     assert code == 1
-    assert (
-        "veyra_proof/extra.py is in the published file and not in the released commit"
-        in out
-    )
+    assert "veyra_proof/extra.py is in the published file and not in the released commit" in out
 
 
 def test_a_package_file_the_published_files_do_not_ship_fails(
@@ -626,7 +640,10 @@ def test_a_package_file_the_published_files_do_not_ship_fails(
     (dist / "src" / "veyra_proof" / "new.py").write_bytes(b"# added for the release\n")
     _commit(dist, "add the module")
     index = Index(
-        files={f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2), f"/files/{WHEEL}": _zip(PAYLOAD, when=2)}
+        files={
+            f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2),
+            f"/files/{WHEEL}": _zip(PAYLOAD, when=2),
+        }
     )
     index.release = index.release_payload([SDIST, WHEEL])
     try:
@@ -707,9 +724,7 @@ def test_commit_names_the_commit_being_released(check, dist, tmp_path, capsys) -
     assert "names no commit" in capsys.readouterr().err
 
 
-def test_when_git_cannot_say_which_commit_the_step_is_unproven(
-    check, tmp_path, capsys
-) -> None:
+def test_when_git_cannot_say_which_commit_the_step_is_unproven(check, tmp_path, capsys) -> None:
     """A matching payload is not a provenance.
 
     Without a commit to compare against the question cannot be answered, and an
@@ -723,7 +738,10 @@ def test_when_git_cannot_say_which_commit_the_step_is_unproven(
     (root / "dist" / WHEEL).write_bytes(_zip(PAYLOAD, when=1))
     (root / "dist" / SDIST).write_bytes(_tar(SDIST_PAYLOAD, when=1))
     index = Index(
-        files={f"/files/{WHEEL}": _zip(PAYLOAD, when=2), f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2)}
+        files={
+            f"/files/{WHEEL}": _zip(PAYLOAD, when=2),
+            f"/files/{SDIST}": _tar(SDIST_PAYLOAD, when=2),
+        }
     )
     index.release = index.release_payload([WHEEL, SDIST])
     report = tmp_path / "published.json"

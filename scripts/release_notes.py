@@ -48,6 +48,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import ModuleType
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -131,7 +132,7 @@ def unreleased(root: Path, version: str) -> list[str]:
     return _section(root, "Unreleased") or []
 
 
-def gate_module(root: Path):
+def gate_module(root: Path) -> ModuleType:
     """The gate, loaded by path.
 
     Not a copy of it: `tree_fingerprint` decides whether a record describes the tree
@@ -144,7 +145,10 @@ def gate_module(root: Path):
     # released. The fallback is for a root that carries no `scripts/` of its own —
     # the fingerprint question is about that root either way, since the function is
     # handed it as an argument.
-    candidates = [root / "scripts" / "pre_release.py", Path(__file__).resolve().parent / "pre_release.py"]
+    candidates = [
+        root / "scripts" / "pre_release.py",
+        Path(__file__).resolve().parent / "pre_release.py",
+    ]
     path = next((path for path in candidates if path.is_file()), candidates[0])
     spec = importlib.util.spec_from_file_location("veyra_pre_release", path)
     if spec is None or spec.loader is None:
@@ -201,19 +205,13 @@ def verification_rows(
 
     for label in STATE_ROWS:
         body = (state or {}).get(label)
-        if not (
-            isinstance(body, list)
-            and body
-            and all(isinstance(line, str) for line in body)
-        ):
+        if not (isinstance(body, list) and body and all(isinstance(line, str) for line in body)):
             # Nothing recorded is nothing measured: the gate ran without asking,
             # and an absent measurement is not an absent release.
             unmeasured.append(label)
             continue
         rows.append(
-            f"| `{label}` | "
-            + "<br>".join(line.replace("|", "\\|") for line in body)
-            + " |"
+            f"| `{label}` | " + "<br>".join(line.replace("|", "\\|") for line in body) + " |"
         )
 
     platforms = _facts(measured, PLATFORMS)
@@ -306,10 +304,7 @@ def verification_rows(
             tail += f", built from `{short}` ({published.get('released_from', '')})"
         rows.append(
             f"| What `{published.get('index', '')}` serves for "
-            f"`{published.get('version', '')}` | "
-            + "; ".join(parts)
-            + tail
-            + " |"
+            f"`{published.get('version', '')}` | " + "; ".join(parts) + tail + " |"
         )
 
     tests = _facts(measured, TESTS)
@@ -410,10 +405,14 @@ def generate(
 
     bullets = unreleased(root, version)
     if not bullets:
-        return 1, (
-            f"neither `## What changed in v{version}` nor `## Unreleased` has any "
-            f"bullets in {CHANGES}: there is nothing to release"
-        ), None
+        return (
+            1,
+            (
+                f"neither `## What changed in v{version}` nor `## Unreleased` has any "
+                f"bullets in {CHANGES}: there is nothing to release"
+            ),
+            None,
+        )
 
     ledger = ledger_path(root)
     if record is None:
@@ -422,16 +421,24 @@ def generate(
         except (OSError, ValueError):
             record = {}
     if not isinstance(record, dict) or not record:
-        return 1, (
-            f"the gate has no record at {ledger}: run `python scripts/pre_release.py` "
-            "first, so the numbers can be read rather than guessed"
-        ), None
+        return (
+            1,
+            (
+                f"the gate has no record at {ledger}: run `python scripts/pre_release.py` "
+                "first, so the numbers can be read rather than guessed"
+            ),
+            None,
+        )
 
     if record.get("version") != version:
-        return 1, (
-            f"the gate's record is for {record.get('version')!r}, and this tree declares "
-            f"{version!r}: the numbers would describe a different release"
-        ), None
+        return (
+            1,
+            (
+                f"the gate's record is for {record.get('version')!r}, and this tree declares "
+                f"{version!r}: the numbers would describe a different release"
+            ),
+            None,
+        )
 
     # A record taken on another tree describes a different commit, and the numbers in
     # it are not this release's. The fingerprint is the gate's own, so there is one
@@ -443,17 +450,19 @@ def generate(
     if not current:
         return 2, f"cannot fingerprint {root}: is it a git checkout?", None
     if record.get("fingerprint") != current:
-        return 1, (
-            "the gate's record was taken on a different tree "
-            f"({str(record.get('fingerprint'))[:12]}… recorded, {current[:12]}… now): "
-            "run `python scripts/pre_release.py` again so the numbers describe what "
-            "you are releasing"
-        ), None
+        return (
+            1,
+            (
+                "the gate's record was taken on a different tree "
+                f"({str(record.get('fingerprint'))[:12]}… recorded, {current[:12]}… now): "
+                "run `python scripts/pre_release.py` again so the numbers describe what "
+                "you are releasing"
+            ),
+            None,
+        )
 
     measured = measurements(record)
-    rows, unmeasured = verification_rows(
-        measured, root, list(WANTED), record.get("state")
-    )
+    rows, unmeasured = verification_rows(measured, root, list(WANTED), record.get("state"))
 
     body = render(version, title, bullets, rows, unmeasured, record)
     destination = out or root / ".freebuff" / f"release-notes-v{version}.md"

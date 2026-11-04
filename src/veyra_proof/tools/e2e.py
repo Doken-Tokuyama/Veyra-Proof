@@ -32,7 +32,14 @@ from pathlib import Path
 from typing import Any
 
 from veyra_proof.config import E2eScenario
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 RULE_VACUOUS = "E2E00"
@@ -203,9 +210,7 @@ def run_scenario(
         shutil.rmtree(sandbox, ignore_errors=True)
 
 
-def evaluate_scenario(
-    scenario: E2eScenario, result: Any, sandbox: Path
-) -> list[Finding]:
+def evaluate_scenario(scenario: E2eScenario, result: Any, sandbox: Path) -> list[Finding]:
     """Pure comparison of declared expectations against one observed run."""
     findings: list[Finding] = []
 
@@ -312,11 +317,7 @@ def evaluate_scenario(
                 "the scenario.",
             )
 
-    if (
-        scenario.expect_failure
-        and not scenario.expect_stderr_regex
-        and not result.stderr.strip()
-    ):
+    if scenario.expect_failure and not scenario.expect_stderr_regex and not result.stderr.strip():
         add(
             RULE_OUTPUT,
             "warning",
@@ -341,7 +342,7 @@ def _log_lines(executable: Path, digest: str, outcomes: list[dict[str, Any]]) ->
         else:
             verdict = "PASS"
         lines.append(
-            'SCENARIO name={name!r} argv={argv!r} observed_exit={observed_exit} '
+            "SCENARIO name={name!r} argv={argv!r} observed_exit={observed_exit} "
             "expect_exit={expect_exit} expect_failure={expect_failure} "
             "duration={duration_seconds}s verdict={verdict}".format(
                 name=observed["name"],
@@ -387,10 +388,10 @@ class E2eTool(Tool):
             message="Built-in: builds the workspace and drives the produced binary",
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         e2e = context.config.e2e
         if e2e.errors or not e2e.scenarios:
             return []
@@ -398,7 +399,7 @@ class E2eTool(Tool):
             ["<built-binary>", *scenario.argv] for scenario in e2e.scenarios
         ]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         clock = time.perf_counter()
         e2e = context.config.e2e
@@ -639,7 +640,7 @@ class E2eTool(Tool):
         target_name: str | None = None,
         outcomes: list[dict[str, Any]] | None = None,
         elapsed: float | None = None,
-    ):
+    ) -> ToolResult:
         out, err = self.write_logs(context, log, build_stderr)
         environment: dict[str, str] = {
             "evidence_kind": "e2e",

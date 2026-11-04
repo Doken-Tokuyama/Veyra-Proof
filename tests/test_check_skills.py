@@ -185,9 +185,7 @@ def test_account_drift_warns_but_does_not_fail(combined, tmp_path, capsys) -> No
     """
     root, home, store = _sandbox(tmp_path)
     stale = _canonical(root)
-    stale["SKILL.md"] = re.sub(
-        r'(?m)^(\s*version:\s*)"[^"]+"$', r'\g<1>"0.4.0"', stale["SKILL.md"]
-    )
+    stale["SKILL.md"] = re.sub(r'(?m)^(\s*version:\s*)"[^"]+"$', r'\g<1>"0.4.0"', stale["SKILL.md"])
     _write_store(store, stale)
 
     code, out = _run(combined, root, home, store, capsys)
@@ -211,9 +209,7 @@ def test_a_check_that_cannot_run_fails(combined, tmp_path, capsys) -> None:
     assert "could not run" in out
 
 
-def test_both_reports_are_printed_even_when_the_first_fails(
-    combined, tmp_path, capsys
-) -> None:
+def test_both_reports_are_printed_even_when_the_first_fails(combined, tmp_path, capsys) -> None:
     """Nothing is hidden behind an early exit: the point is not to forget one."""
     root, home, store = _sandbox(tmp_path)
     target = home / ".cursor" / "skills" / SKILL_NAME

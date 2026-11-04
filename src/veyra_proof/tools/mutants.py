@@ -1,10 +1,18 @@
 """cargo-mutants."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -27,11 +35,10 @@ class CargoMutantsTool(Tool):
             context, ["cargo", "mutants", "--version"], absent_message="cargo-mutants not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-mutants")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         paths = list(context.config.mutants.paths)
         if not paths:
             return []
@@ -40,17 +47,26 @@ class CargoMutantsTool(Tool):
             cmd.extend(["--file", p])
         return [cmd]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
         paths = list(context.config.mutants.paths)
         if not paths:
-            return self.skipped(context, "no mutants.paths configuration; refusing to scan entire workspace silently")
+            return self.skipped(
+                context,
+                "no mutants.paths configuration; refusing to scan entire workspace silently",
+            )
         cmd = ["cargo", "mutants", "--timeout", str(context.config.mutants.timeout_seconds)]
         for p in paths:
             cmd.extend(["--file", p])
-        result = context.runner.run(cmd, cwd=context.root, timeout=max(context.timeout_seconds, float(context.config.mutants.timeout_seconds) * 10))
+        result = context.runner.run(
+            cmd,
+            cwd=context.root,
+            timeout=max(
+                context.timeout_seconds, float(context.config.mutants.timeout_seconds) * 10
+            ),
+        )
         out, err = self.write_logs(context, result.stdout, result.stderr)
         text = result.stdout + "\n" + result.stderr
         findings: list[Finding] = []
@@ -62,21 +78,36 @@ class CargoMutantsTool(Tool):
             if result.exit_code == 0 and "MISSED" not in text and "survived" not in text.lower():
                 status, severity, summary = "OK", "info", "No surviving mutants reported"
             else:
-                findings.append(Finding(
-                    rule="mutant-survived",
-                    severity="error",
-                    confidence="high",
-                    file=None, line=None, excerpt=None,
-                    explanation="One or more mutants survived or mutants run reported failures; see logs.",
-                    recommendation="Strengthen tests to kill surviving mutants.",
-                ))
-                status, severity, summary = "FINDINGS", "error", "Surviving mutants or mutant run failures"
+                findings.append(
+                    Finding(
+                        rule="mutant-survived",
+                        severity="error",
+                        confidence="high",
+                        file=None,
+                        line=None,
+                        excerpt=None,
+                        explanation="One or more mutants survived or mutants run reported failures; see logs.",
+                        recommendation="Strengthen tests to kill surviving mutants.",
+                    )
+                )
+                status, severity, summary = (
+                    "FINDINGS",
+                    "error",
+                    "Surviving mutants or mutant run failures",
+                )
         else:
             status, severity, summary = "OK", "info", "No surviving mutants reported"
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

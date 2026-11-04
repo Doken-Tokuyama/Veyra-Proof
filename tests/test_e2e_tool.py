@@ -189,6 +189,7 @@ def test_declared_scenarios_run_against_the_built_binary_and_pass(tmp_path) -> N
     assert result.artifact_hashes  # the binary that produced the behavior is pinned
     assert runner.calls[0][:2] == ["cargo", "build"]
     assert runner.calls[1] == [str(tmp_path / EXE), "add", "1", "2"]
+    assert result.stdout_path is not None
     log = Path(result.stdout_path).read_text(encoding="utf-8")
     assert "observed_exit=0" in log
     assert "verdict=PASS" in log
@@ -206,9 +207,7 @@ def test_build_uses_release_and_locked_when_declared(tmp_path) -> None:
 
 def test_build_without_lockfile_does_not_ask_for_one(tmp_path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
-    ctx = make_context(
-        tmp_path, E2eConfig(scenarios=[scenario()]), runner, has_lockfile=False
-    )
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner, has_lockfile=False)
 
     E2eTool().run(ctx)
 
@@ -223,9 +222,7 @@ def test_wrong_exit_code_is_a_failure_that_quotes_what_was_observed(tmp_path) ->
         build_stdout=artifact_line(tmp_path / EXE) + "\n",
         scenarios={("add", "1", "2"): observed},
     )
-    ctx = make_context(
-        tmp_path, E2eConfig(scenarios=[scenario(expect_exit=2)]), runner
-    )
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario(expect_exit=2)]), runner)
 
     result = E2eTool().run(ctx)
 
@@ -410,7 +407,16 @@ def test_a_timeout_is_inconclusive_never_success_or_failure(tmp_path) -> None:
 
 
 def test_a_workspace_that_builds_no_binary_is_inconclusive(tmp_path) -> None:
-    runner = FakeRunner(build_stdout=json.dumps({"reason": "compiler-artifact", "target": {"name": "lib", "kind": ["lib"]}, "executable": None}) + "\n")
+    runner = FakeRunner(
+        build_stdout=json.dumps(
+            {
+                "reason": "compiler-artifact",
+                "target": {"name": "lib", "kind": ["lib"]},
+                "executable": None,
+            }
+        )
+        + "\n"
+    )
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
 
     result = E2eTool().run(ctx)
@@ -422,9 +428,7 @@ def test_a_workspace_that_builds_no_binary_is_inconclusive(tmp_path) -> None:
 
 def test_declared_binaries_that_were_not_built_are_a_finding(tmp_path) -> None:
     runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE, name="other") + "\n")
-    ctx = make_context(
-        tmp_path, E2eConfig(scenarios=[scenario()], binaries=["demo"]), runner
-    )
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()], binaries=["demo"]), runner)
 
     result = E2eTool().run(ctx)
 
@@ -445,9 +449,12 @@ def test_dead_code_is_informational_and_never_blocks_the_verdict(tmp_path) -> No
 
 
 def test_dependency_warnings_are_not_attributed_to_the_workspace(tmp_path) -> None:
-    stdout = artifact_line(tmp_path / EXE) + "\n" + warning_line(
-        "dead_code", file="/rustc/registry/src/serde/lib.rs"
-    ) + "\n"
+    stdout = (
+        artifact_line(tmp_path / EXE)
+        + "\n"
+        + warning_line("dead_code", file="/rustc/registry/src/serde/lib.rs")
+        + "\n"
+    )
     runner = FakeRunner(build_stdout=stdout)
     ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
 
@@ -462,7 +469,7 @@ def test_invalid_configuration_is_reported_instead_of_ignored(tmp_path) -> None:
             [
                 "[[e2e.scenarios]]",
                 'name = "broken"',
-                "argv = [\"run\"]",
+                'argv = ["run"]',
                 "expect_stdout_regex = '('",
                 "",
             ]
@@ -552,7 +559,4 @@ def test_required_tool_ids_demands_e2e_only_when_journeys_are_declared() -> None
         assert "veyra-e2e" in required_tool_ids(profile, config=configured)
 
     # Never required in a profile that does not run it, or when excluded.
-    assert (
-        "veyra-e2e"
-        not in required_tool_ids("quick", config=configured, selected_ids=["clippy"])
-    )
+    assert "veyra-e2e" not in required_tool_ids("quick", config=configured, selected_ids=["clippy"])

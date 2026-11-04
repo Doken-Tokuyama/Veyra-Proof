@@ -102,9 +102,7 @@ def _sandbox(tmp_path: Path, home_name: str = "home") -> tuple[Path, Path]:
     """A checkout holding the canonical skill, and a home with one harness installed."""
     canonical = tmp_path / "repo" / ".cursor" / "skills" / "veyra-proof"
     canonical.mkdir(parents=True)
-    (canonical / "SKILL.md").write_text(
-        "---\nname: veyra-proof\n---\n# Skill\n", encoding="utf-8"
-    )
+    (canonical / "SKILL.md").write_text("---\nname: veyra-proof\n---\n# Skill\n", encoding="utf-8")
     (canonical / "reference.md").write_text("# Reference\n", encoding="utf-8")
     home = tmp_path / home_name
     (home / ".cursor").mkdir(parents=True)

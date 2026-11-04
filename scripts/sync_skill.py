@@ -81,8 +81,7 @@ IGNORED = {"__pycache__", ".DS_Store", ".git"}
 # reader to conclude the rest are fine. `SKILL-COPIES.md` carries the long version;
 # this is the part that has to survive on its own in a terminal.
 REPORTED_COPY = (
-    "harness fan-out — owned by this repository; this script links it to the "
-    "canonical directory"
+    "harness fan-out — owned by this repository; this script links it to the canonical directory"
 )
 
 # Must match ``check_account_skill.DEFAULT_STORE_REL``; tests/test_skill_document.py
@@ -563,9 +562,7 @@ def install(
     return MODE_COPY
 
 
-def find_stale_copies(
-    root: Path, home: Path, targets: list[Target]
-) -> list[tuple[Target, Path]]:
+def find_stale_copies(root: Path, home: Path, targets: list[Target]) -> list[tuple[Target, Path]]:
     """Copies and links this script installed under a name it no longer uses.
 
     Scans the siblings of each destination rather than the destinations
@@ -702,8 +699,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.apply and args.check:
         print(
-            "--check promises to write nothing, so it cannot honour --apply; "
-            "drop one of them",
+            "--check promises to write nothing, so it cannot honour --apply; drop one of them",
             file=sys.stderr,
         )
         return 2

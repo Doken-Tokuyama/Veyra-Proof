@@ -45,11 +45,17 @@ def run_doctor(runner: CommandRunner | None = None) -> DoctorReport:
     platform_info: PlatformInfo = detect_platform(runner)
     notes: list[str] = []
     if not platform_info.cargo_path:
-        notes.append("Cargo not found on PATH. Install Rust from https://rustup.rs (manual; Veyra will not curl|sh).")
+        notes.append(
+            "Cargo not found on PATH. Install Rust from https://rustup.rs (manual; Veyra will not curl|sh)."
+        )
     if not platform_info.rustup_path:
-        notes.append("rustup not found. Component installs (clippy/rustfmt/miri) will be unavailable.")
+        notes.append(
+            "rustup not found. Component installs (clippy/rustfmt/miri) will be unavailable."
+        )
     if platform_info.os.value == "Other":
-        notes.append(f"Unsupported OS raw={platform_info.os_raw!r}; tool compatibility may be limited.")
+        notes.append(
+            f"Unsupported OS raw={platform_info.os_raw!r}; tool compatibility may be limited."
+        )
 
     # Probe registered tools without a workspace (synthetic context)
     fake_ws = WorkspaceInfo(

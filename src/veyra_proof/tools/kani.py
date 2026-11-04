@@ -1,4 +1,5 @@
 """Kani model checker."""
+
 from __future__ import annotations
 
 import shutil
@@ -10,6 +11,7 @@ from veyra_proof.models import (
     InstallStep,
     ResultStatus,
     Severity,
+    ToolResult,
 )
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import has_kani_harnesses
@@ -27,7 +29,9 @@ class KaniTool(Tool):
     default_profiles = ["hardened"]
     prerequisites = ["cargo"]
     safety_level = "hardened"
-    reasons_to_skip = ["No automatic install unless --install-missing --include kani or explicit config"]
+    reasons_to_skip = [
+        "No automatic install unless --install-missing --include kani or explicit config"
+    ]
 
     def detect(self, context: AuditContext) -> DetectionResult:
         if not shutil.which("cargo"):
@@ -36,7 +40,7 @@ class KaniTool(Tool):
             context, ["cargo", "kani", "--version"], absent_message="kani not installed", timeout=30
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         # Only when explicitly included
         include = {x.strip() for x in context.include}
         if "kani" not in include and not context.config.kani.enabled:
@@ -47,55 +51,93 @@ class KaniTool(Tool):
             method="cargo_install",
             target_version=None,
             steps=[
-                InstallStep("Install kani-verifier", ["cargo", "install", "--locked", "kani-verifier"]),
+                InstallStep(
+                    "Install kani-verifier", ["cargo", "install", "--locked", "kani-verifier"]
+                ),
                 InstallStep("kani setup", ["cargo", "kani", "setup"]),
             ],
             notes="Kani setup may download platform-specific components; review before authorizing.",
         )
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "kani"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
         include = {x.strip() for x in context.include}
-        if not context.config.kani.enabled and "kani" not in include and not has_kani_harnesses(context.root):
-            return self.skipped(context, "no #[kani::proof] harnesses or explicit configuration found")
-        if not has_kani_harnesses(context.root) and not context.config.kani.enabled and "kani" not in include:
-            return self.skipped(context, "no #[kani::proof] harnesses or explicit configuration found")
+        if (
+            not context.config.kani.enabled
+            and "kani" not in include
+            and not has_kani_harnesses(context.root)
+        ):
+            return self.skipped(
+                context, "no #[kani::proof] harnesses or explicit configuration found"
+            )
+        if (
+            not has_kani_harnesses(context.root)
+            and not context.config.kani.enabled
+            and "kani" not in include
+        ):
+            return self.skipped(
+                context, "no #[kani::proof] harnesses or explicit configuration found"
+            )
         if not has_kani_harnesses(context.root):
-            return self.skipped(context, "no #[kani::proof] harnesses found; refusing to generate proofs")
+            return self.skipped(
+                context, "no #[kani::proof] harnesses found; refusing to generate proofs"
+            )
         cmd = ["cargo", "kani"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
         text = result.stdout + "\n" + result.stderr
         findings: list[Finding] = []
         if result.timed_out:
-            status, severity, summary = "INCONCLUSIVE", "warning", "Kani timed out / resource exhaustion"
+            status, severity, summary = (
+                "INCONCLUSIVE",
+                "warning",
+                "Kani timed out / resource exhaustion",
+            )
         elif result.exit_code is None:
             status, severity, summary = "ERROR", "error", result.error or "Kani failed"
         elif "Failed Checks" in text or "Verification failed" in text or result.exit_code != 0:
             if result.exit_code == 0:
-                status, severity, summary = "OK", "info", "Kani properties proven for configured harnesses"
+                status, severity, summary = (
+                    "OK",
+                    "info",
+                    "Kani properties proven for configured harnesses",
+                )
             else:
-                findings.append(Finding(
-                    rule="kani-counterexample",
-                    severity="error",
-                    confidence="high",
-                    file=None, line=None, excerpt=None,
-                    explanation="Kani reported a counterexample or failed check.",
-                    recommendation="Inspect Kani output and fix the failing property.",
-                ))
+                findings.append(
+                    Finding(
+                        rule="kani-counterexample",
+                        severity="error",
+                        confidence="high",
+                        file=None,
+                        line=None,
+                        excerpt=None,
+                        explanation="Kani reported a counterexample or failed check.",
+                        recommendation="Inspect Kani output and fix the failing property.",
+                    )
+                )
                 status, severity, summary = "FINDINGS", "error", "Kani counterexample/failure"
         else:
-            status, severity, summary = "OK", "info", "Kani properties proven for configured harnesses"
+            status, severity, summary = (
+                "OK",
+                "info",
+                "Kani properties proven for configured harnesses",
+            )
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

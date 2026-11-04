@@ -1,10 +1,18 @@
 """cargo-machete."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -34,14 +42,13 @@ class CargoMacheteTool(Tool):
             return DetectionResult(self.id, "INSTALLED", True, version="unknown")
         return det
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-machete")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "machete"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -56,19 +63,30 @@ class CargoMacheteTool(Tool):
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "No unused dependencies reported"
         else:
-            findings.append(Finding(
-                rule="unused-dependency",
-                severity="warning",
-                confidence="medium",
-                file="Cargo.toml", line=None, excerpt=None,
-                explanation="cargo-machete reported unused dependencies (requires human review).",
-                recommendation="Confirm unused crates and remove them carefully.",
-            ))
+            findings.append(
+                Finding(
+                    rule="unused-dependency",
+                    severity="warning",
+                    confidence="medium",
+                    file="Cargo.toml",
+                    line=None,
+                    excerpt=None,
+                    explanation="cargo-machete reported unused dependencies (requires human review).",
+                    recommendation="Confirm unused crates and remove them carefully.",
+                )
+            )
             status, severity, summary = "FINDINGS", "warning", "Possible unused dependencies"
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

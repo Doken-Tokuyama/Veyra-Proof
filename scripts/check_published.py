@@ -133,7 +133,9 @@ def project_metadata(root: Path) -> tuple[str, str]:
 
 def fetch_json(url: str, timeout: float) -> dict | None:
     """The release's JSON, or None when the index has no such release (404)."""
-    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": USER_AGENT})
+    request = urllib.request.Request(
+        url, headers={"Accept": "application/json", "User-Agent": USER_AGENT}
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -284,9 +286,7 @@ def compare(served_entry: dict, served_bytes: bytes, local: Path) -> tuple[dict,
     for name in only_local[:3]:
         problems.append(f"{filename}: {name} is in dist/ and not in the file the index serves")
     if len(record["differing_members"]) > 3:
-        problems.append(
-            f"{filename}: {len(record['differing_members'])} members differ in total"
-        )
+        problems.append(f"{filename}: {len(record['differing_members'])} members differ in total")
     return record, problems
 
 
@@ -408,9 +408,7 @@ def generated_member(path: str) -> bool:
     """
     if path.rsplit("/", 1)[-1] in GENERATED_BASENAMES:
         return True
-    return any(
-        segment.endswith((".egg-info", ".dist-info")) for segment in path.split("/")
-    )
+    return any(segment.endswith((".egg-info", ".dist-info")) for segment in path.split("/"))
 
 
 def source_candidates(member: str, kind: str) -> list[str]:
@@ -443,9 +441,7 @@ def provenance(
     problems: list[str] = []
 
     for member in sorted(served):
-        hit = next(
-            (path for path in source_candidates(member, kind) if path in tree), None
-        )
+        hit = next((path for path in source_candidates(member, kind) if path in tree), None)
         if hit is None:
             if generated_member(member):
                 generated.append(member)
@@ -469,9 +465,7 @@ def provenance(
         if not path.startswith(PACKAGE_SOURCE):
             continue
         if kind == SDIST:
-            shipped = any(
-                name == path or name.endswith("/" + path) for name in served
-            )
+            shipped = any(name == path or name.endswith("/" + path) for name in served)
         else:
             shipped = path[len(PACKAGE_SOURCE) :] in served
         if not shipped:
@@ -500,9 +494,7 @@ def write_report(path: Path | None, facts: dict, ok: bool) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     except OSError as error:
         print(f"note: could not write the report to {path}: {error}", file=sys.stderr)
@@ -716,9 +708,17 @@ def main(argv: list[str] | None = None) -> int:
                 # The likeliest reading, and one that changes what the reader should do: the
                 # version is already out, this tree is not the tree it came from, and the
                 # artifacts here will never be the ones on the index.
-                print(f"        v{version} names {tag[:12]} and this checkout is {head[:12]}, so the")
-                print("        artifacts built here are not the published ones. Compare the release")
-                print("        on its own tree (`git worktree add <dir> v" + version + "`), or bump the")
+                print(
+                    f"        v{version} names {tag[:12]} and this checkout is {head[:12]}, so the"
+                )
+                print(
+                    "        artifacts built here are not the published ones. Compare the release"
+                )
+                print(
+                    "        on its own tree (`git worktree add <dir> v"
+                    + version
+                    + "`), or bump the"
+                )
                 print("        version and release the new one.")
             else:
                 print("        Either the published artifact is not the one this gate checked, or")

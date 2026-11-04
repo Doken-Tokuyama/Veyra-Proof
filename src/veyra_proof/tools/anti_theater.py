@@ -8,7 +8,15 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.config import PolicyConfig
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 SKIP_DIR_NAMES = {".git", "target", ".veyra", "node_modules", ".cargo"}
@@ -158,7 +166,9 @@ def _code_lines(lines: list[str]) -> list[tuple[str, str]]:
     return out
 
 
-def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[Finding]:
+def analyze_rust_sources(
+    root: Path, critical_paths: list[str], policy: PolicyConfig
+) -> list[Finding]:
     findings: list[Finding] = []
     todo_sev: Severity = "blocker" if policy.fail_on_todo else "warning"
     unimpl_sev: Severity = "blocker" if policy.fail_on_unimplemented else "warning"
@@ -329,7 +339,7 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                         )
                     )
 
-            if 'extern "C"' in stripped or "extern \"C\"" in stripped:
+            if 'extern "C"' in stripped or 'extern "C"' in stripped:
                 if policy.deny_ffi:
                     findings.append(
                         Finding(
@@ -360,7 +370,10 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                     )
 
             if policy.deny_network_in_pure_modules and _in_critical(rel, critical_paths):
-                if any(tok in stripped for tok in ("TcpStream", "UdpSocket", "reqwest::", "hyper::", "tokio::net")):
+                if any(
+                    tok in stripped
+                    for tok in ("TcpStream", "UdpSocket", "reqwest::", "hyper::", "tokio::net")
+                ):
                     findings.append(
                         Finding(
                             rule="VT012",
@@ -374,7 +387,9 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                         )
                     )
 
-            if re.search(r"#\[allow\((dead_code|unused|clippy::all|clippy::correctness)\)\]", stripped):
+            if re.search(
+                r"#\[allow\((dead_code|unused|clippy::all|clippy::correctness)\)\]", stripped
+            ):
                 findings.append(
                     Finding(
                         rule="VT013",
@@ -394,10 +409,10 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
             if re.match(r"^\s*pub\s+fn\s+\w+", stripped):
                 # The window includes the signature itself and needs no line
                 # after it, so a `pub fn` on the file's last line is still read.
-                window = "\n".join(code for code, _ in code_lines[idx - 1 : min(idx + 6, len(code_lines))])
-                if re.search(
-                    r"pub\s+fn\s+\w+[^{]*\{\s*(?:return\s+)?\d+\s*;?\s*\}", window
-                ):
+                window = "\n".join(
+                    code for code, _ in code_lines[idx - 1 : min(idx + 6, len(code_lines))]
+                )
+                if re.search(r"pub\s+fn\s+\w+[^{]*\{\s*(?:return\s+)?\d+\s*;?\s*\}", window):
                     findings.append(
                         Finding(
                             rule="VT014",
@@ -430,7 +445,10 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
                 # not to run it. That is VT004's business, not VT006's.
                 if "#[ignore]" in preceding:
                     continue
-                if not any(a in body for a in TEST_ORACLE_MARKERS) and "should_panic" not in preceding:
+                if (
+                    not any(a in body for a in TEST_ORACLE_MARKERS)
+                    and "should_panic" not in preceding
+                ):
                     line_no = text[: m.start()].count("\n") + 1
                     findings.append(
                         Finding(
@@ -448,17 +466,17 @@ def analyze_rust_sources(root: Path, critical_paths: list[str], policy) -> list[
         # #[cfg(test)] public impl theatrical split — look for cfg(test) pub fn near cfg(not(test))
         if "#[cfg(test)]" in text and "#[cfg(not(test))]" in text and _is_production_src(rel):
             findings.append(
-                    Finding(
-                        rule="VT015",
-                        severity=cfg_sev,
-                        confidence="low",
-                        file=rel,
-                        line=None,
-                        excerpt="#[cfg(test)] / #[cfg(not(test))]",
-                        explanation="File splits behavior between test and non-test cfg (informational; not proof of a theatrical implementation; requires human review).",
-                        recommendation="Ensure non-test builds expose real logic, not panic/todo stubs.",
-                    )
+                Finding(
+                    rule="VT015",
+                    severity=cfg_sev,
+                    confidence="low",
+                    file=rel,
+                    line=None,
+                    excerpt="#[cfg(test)] / #[cfg(not(test))]",
+                    explanation="File splits behavior between test and non-test cfg (informational; not proof of a theatrical implementation; requires human review).",
+                    recommendation="Ensure non-test builds expose real logic, not panic/todo stubs.",
                 )
+            )
 
     # Downgrade info findings out of Problems by filtering in reporting; keep them in JSON
     return findings
@@ -485,14 +503,13 @@ class AntiTheaterTool(Tool):
             message="Built-in conservative static analysis",
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["builtin:veyra-anti-theater", "scan", str(context.root)]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -513,10 +530,7 @@ class AntiTheaterTool(Tool):
                     f"rule histogram: {histogram or 'none'}",
                     "",
                 ]
-                + [
-                    f"{f.rule} {f.severity} {f.file}:{f.line} {f.explanation}"
-                    for f in findings
-                ]
+                + [f"{f.rule} {f.severity} {f.file}:{f.line} {f.explanation}" for f in findings]
             ),
             "",
         )

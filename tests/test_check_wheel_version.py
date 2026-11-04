@@ -46,12 +46,7 @@ CLI_SOURCE = (
     "        print(f'veyra {__version__}')\n"
     "    return 0\n"
 )
-MAIN_SOURCE = (
-    "import sys\n"
-    "from veyra_proof.cli import main\n"
-    "\n"
-    "raise SystemExit(main())\n"
-)
+MAIN_SOURCE = "import sys\nfrom veyra_proof.cli import main\n\nraise SystemExit(main())\n"
 
 
 @pytest.fixture(scope="module")
@@ -92,8 +87,7 @@ def _wheel(
             f"Metadata-Version: 2.1\nName: veyra-proof\nVersion: {metadata_version}\n"
         ).encode(),
         f"{dist_info}/WHEEL": (
-            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
-            f"Tag: {tag}\n"
+            f"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: {tag}\n"
         ).encode(),
     }
     if entry_point:
@@ -279,9 +273,7 @@ def test_a_stale_module_version_fails_and_names_both_values(
     )
 
 
-def test_a_wheel_without_its_console_script_fails(
-    check, tmp_path, shared_venv, capsys
-) -> None:
+def test_a_wheel_without_its_console_script_fails(check, tmp_path, shared_venv, capsys) -> None:
     """A wheel that installs no `veyra` is broken however well it imports."""
     root = _root(tmp_path)
     dist = tmp_path / "dist"
@@ -326,9 +318,7 @@ def test_the_console_script_is_named_the_way_the_wheel_declares_it(
 
     problems, confirmed = check.probe(Path(sys.executable), tmp_path, CONSISTENT)
 
-    assert (
-        "cli: veyra --version says 'veyra 0.3.0', expected 'veyra 9.9.9'" in problems
-    ), problems
+    assert "cli: veyra --version says 'veyra 0.3.0', expected 'veyra 9.9.9'" in problems, problems
     assert not any("veyra.exe" in problem for problem in problems), (
         "the report names a file, and the reader is checking a wheel's entry point"
     )
@@ -372,9 +362,7 @@ def test_a_missing_pyproject_is_misuse(check, tmp_path, capsys) -> None:
     assert "no pyproject.toml" in out
 
 
-def test_a_temporary_environment_is_removed_on_success(
-    check, tmp_path, capsys
-) -> None:
+def test_a_temporary_environment_is_removed_on_success(check, tmp_path, capsys) -> None:
     """Throwaway means throwaway: the success path leaves nothing behind."""
     root = _root(tmp_path)
     dist = tmp_path / "dist"

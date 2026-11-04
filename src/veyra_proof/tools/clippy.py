@@ -1,10 +1,19 @@
 """cargo clippy."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import rustup_component_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    CommandResult,
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
@@ -16,7 +25,17 @@ from veyra_proof.tools.base import (
 )
 
 ALL_TARGETS = ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
-STABLE_TARGETS = ["cargo", "clippy", "--workspace", "--lib", "--bins", "--tests", "--", "-D", "warnings"]
+STABLE_TARGETS = [
+    "cargo",
+    "clippy",
+    "--workspace",
+    "--lib",
+    "--bins",
+    "--tests",
+    "--",
+    "-D",
+    "warnings",
+]
 
 
 class ClippyTool(Tool):
@@ -36,19 +55,21 @@ class ClippyTool(Tool):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
         prereq = [] if shutil.which("rustup") else ["rustup"]
         return self.detect_via_version(
-            context, ["cargo", "clippy", "--version"],
-            absent_message="clippy not available", absent_prerequisites=prereq,
+            context,
+            ["cargo", "clippy", "--version"],
+            absent_message="clippy not available",
+            absent_prerequisites=prereq,
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         if not shutil.which("rustup"):
             return None
         return rustup_component_plan(self.id, self.display_name, "clippy")
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [self.cargo_command(context, list(ALL_TARGETS))]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         cmd = self.cargo_command(context, list(ALL_TARGETS))
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
@@ -62,24 +83,38 @@ class ClippyTool(Tool):
         out, err = self.write_logs(context, result.stdout, result.stderr)
         # cargo's lockfile refusal is printed as `error: ...`; parsing it as a
         # lint would blame clippy for a lockfile decision nobody asked it for.
-        findings = (
-            []
-            if stale_lockfile(text)
-            else parse_clippy_output(text)
-        )
+        findings = [] if stale_lockfile(text) else parse_clippy_output(text)
         status, severity, summary = classify_from_command(
-            timed_out=result.timed_out, exit_code=result.exit_code, findings=findings,
-            stdout=result.stdout, stderr=result.stderr, error=result.error,
+            timed_out=result.timed_out,
+            exit_code=result.exit_code,
+            findings=findings,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            error=result.error,
         )
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr
 
-    def _without_nightly_targets(self, context, started, cmd, failed, blocked):
+    def _without_nightly_targets(
+        self,
+        context: AuditContext,
+        started: str,
+        cmd: list[str],
+        failed: CommandResult,
+        blocked: list[str],
+    ) -> ToolResult:
         """Re-lint the targets stable can build; the rest stays unverified.
 
         A benchmark written with `#![feature(test)]` cannot be linted on stable.
@@ -118,7 +153,9 @@ class ClippyTool(Tool):
         ]
         if fallback.timed_out:
             status, severity, summary = (
-                "INCONCLUSIVE", "warning", "cargo clippy timed out on the stable-target retry",
+                "INCONCLUSIVE",
+                "warning",
+                "cargo clippy timed out on the stable-target retry",
             )
         elif fallback.exit_code == 0:
             status, severity = "INCONCLUSIVE", "warning"
@@ -133,11 +170,20 @@ class ClippyTool(Tool):
                 "were not linted"
             )
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=fallback_cmd, exit_code=fallback.exit_code,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=fallback_cmd,
+            exit_code=fallback.exit_code,
             duration_seconds=(failed.duration_seconds or 0.0) + (fallback.duration_seconds or 0.0),
-            stdout_path=out, stderr_path=err, findings=findings,
-            environment={"verified_targets": "lib,bins,tests", "unverified_files": ",".join(blocked)},
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
+            environment={
+                "verified_targets": "lib,bins,tests",
+                "unverified_files": ",".join(blocked),
+            },
         )
         self.save_result_json(context, tr)
         return tr

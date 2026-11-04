@@ -98,17 +98,13 @@ class TestBrokenConfigIsAUsageError:
         assert "veyra.toml" in str(excinfo.value)
 
     def test_a_valid_file_still_loads(self, tmp_path):
-        (tmp_path / "veyra.toml").write_text(
-            '[semver]\nbaseline = "v0.9.1"\n', encoding="utf-8"
-        )
+        (tmp_path / "veyra.toml").write_text('[semver]\nbaseline = "v0.9.1"\n', encoding="utf-8")
 
         config = load_veyra_config(tmp_path)
 
         assert config.semver.baseline == "v0.9.1"
 
-    def test_the_cli_exits_2_instead_of_calling_itself_broken(
-        self, crate, monkeypatch, capsys
-    ):
+    def test_the_cli_exits_2_instead_of_calling_itself_broken(self, crate, monkeypatch, capsys):
         (crate / "veyra.toml").write_text("this is not toml [\n", encoding="utf-8")
         _stub_cli(monkeypatch, crate)
 

@@ -1,10 +1,18 @@
 """cargo-semver-checks."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import library_package_names
 
@@ -42,10 +50,12 @@ class SemverChecksTool(Tool):
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
         return self.detect_via_version(
-            context, ["cargo", "semver-checks", "--version"], absent_message="cargo-semver-checks not installed"
+            context,
+            ["cargo", "semver-checks", "--version"],
+            absent_message="cargo-semver-checks not installed",
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-semver-checks")
 
     @staticmethod
@@ -59,10 +69,10 @@ class SemverChecksTool(Tool):
             cmd.extend(["--release-type", release_type])
         return cmd
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [self._command(context)]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -92,28 +102,43 @@ class SemverChecksTool(Tool):
                 "semver-checks has no baseline for unpublished crates (no registry version to diff); configure a baseline or skip",
             )
         elif any(m in text for m in VIOLATION_MARKERS):
-            findings.append(Finding(
-                rule="semver-violation",
-                severity="error",
-                confidence="high",
-                file=None, line=None, excerpt=None,
-                explanation="cargo-semver-checks reported API breakage.",
-                recommendation="Review breaking changes and version accordingly.",
-            ))
+            findings.append(
+                Finding(
+                    rule="semver-violation",
+                    severity="error",
+                    confidence="high",
+                    file=None,
+                    line=None,
+                    excerpt=None,
+                    explanation="cargo-semver-checks reported API breakage.",
+                    recommendation="Review breaking changes and version accordingly.",
+                )
+            )
             status, severity, summary = "FINDINGS", "error", "semver violations"
         else:
             # Measured with cargo-semver-checks 0.50.0: an unknown
             # ``--baseline-rev`` exits 101 with "couldn't parse revision", and a
             # rejected flag exits 2. Neither observed a breaking change, so
             # neither may be reported as one.
-            status, severity, summary = "ERROR", "error", (
-                f"semver-checks failed (exit {result.exit_code}) without reporting "
-                "API breakage; check the baseline revision and flags"
+            status, severity, summary = (
+                "ERROR",
+                "error",
+                (
+                    f"semver-checks failed (exit {result.exit_code}) without reporting "
+                    "API breakage; check the baseline revision and flags"
+                ),
             )
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

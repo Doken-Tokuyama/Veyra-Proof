@@ -100,8 +100,7 @@ class TestCommentsAreNotCode:
         write(
             tmp_path,
             "src/lib.rs",
-            "pub fn docs() -> &'static str {\n"
-            '    "https://example.com/todo/" \n}\n',
+            'pub fn docs() -> &\'static str {\n    "https://example.com/todo/" \n}\n',
         )
         assert rules(scan(tmp_path), "VT001") == []
 
@@ -155,24 +154,20 @@ class TestWeakOraclesInFuzzTargetsAreNotFindings:
         write(
             tmp_path,
             "tests/parser.rs",
-            "#[test]\nfn parses_input() {\n    parse(\"x\");\n}\n",
+            '#[test]\nfn parses_input() {\n    parse("x");\n}\n',
         )
         assert len(rules(scan(tmp_path), "VT006")) == 1
 
     def test_it_is_informational_by_default(self, tmp_path):
-        write(tmp_path, "tests/parser.rs", "#[test]\nfn parses() {\n    parse(\"x\");\n}\n")
+        write(tmp_path, "tests/parser.rs", '#[test]\nfn parses() {\n    parse("x");\n}\n')
         assert rules(scan(tmp_path), "VT006")[0].severity == "info"
 
     def test_it_blocks_only_when_the_project_asks(self, tmp_path):
-        write(tmp_path, "tests/parser.rs", "#[test]\nfn parses() {\n    parse(\"x\");\n}\n")
-        found = rules(
-            scan(tmp_path, PolicyConfig(fail_on_weak_oracles=True)), "VT006"
-        )
+        write(tmp_path, "tests/parser.rs", '#[test]\nfn parses() {\n    parse("x");\n}\n')
+        found = rules(scan(tmp_path, PolicyConfig(fail_on_weak_oracles=True)), "VT006")
         assert found[0].severity == "warning"
 
-    def test_an_ignored_test_is_reported_once_as_ignored_not_as_a_weak_oracle(
-        self, tmp_path
-    ):
+    def test_an_ignored_test_is_reported_once_as_ignored_not_as_a_weak_oracle(self, tmp_path):
         write(
             tmp_path,
             "tests/slow.rs",
@@ -197,12 +192,12 @@ class TestIgnoranceAndLintsAreJudgementCalls:
         write(
             tmp_path,
             "src/bytes.rs",
-            "pub fn group(i: usize) -> &str {\n    groups.get(i).unwrap_or_else(|| panic!(\"no group at index {i}\"))\n}\n",
+            'pub fn group(i: usize) -> &str {\n    groups.get(i).unwrap_or_else(|| panic!("no group at index {i}"))\n}\n',
         )
         assert rules(scan(tmp_path), "VT003")[0].severity == "info"
 
     def test_panic_blocks_when_configured(self, tmp_path):
-        write(tmp_path, "src/bytes.rs", "pub fn f() { panic!(\"boom\"); }\n")
+        write(tmp_path, "src/bytes.rs", 'pub fn f() { panic!("boom"); }\n')
         found = rules(scan(tmp_path, PolicyConfig(fail_on_panic=True)), "VT003")
         assert found[0].severity == "warning"
 
@@ -251,7 +246,11 @@ class TestCfgTricksAreJudgementCalls:
         assert rules(scan(tmp_path), "VT014")[0].severity == "info"
 
     def test_a_guard_clause_is_still_not_a_placeholder(self, tmp_path):
-        write(tmp_path, "src/lib.rs", "pub fn count(n: u8) -> u8 {\n    if n == 0 { return 0; }\n    n\n}\n")
+        write(
+            tmp_path,
+            "src/lib.rs",
+            "pub fn count(n: u8) -> u8 {\n    if n == 0 { return 0; }\n    n\n}\n",
+        )
         assert rules(scan(tmp_path), "VT014") == []
 
     def test_the_knob_is_documented_and_defaulted_off(self):
@@ -332,20 +331,20 @@ class TestUpstreamStyleProjectIsNotRejected:
             "\n"
             "pub fn parse(input: &str) -> Result<u32, String> {\n"
             "    if input.is_empty() {\n"
-            "        return Err(\"empty\".to_string());\n"
+            '        return Err("empty".to_string());\n'
             "    }\n"
             "    input.parse().map_err(|e| e.to_string())\n"
             "}\n"
             "\n"
             "pub fn group(map: &HashMap<u8, u8>, key: u8) -> u8 {\n"
-            "    *map.get(&key).unwrap_or_else(|| panic!(\"missing group {key}\"))\n"
+            '    *map.get(&key).unwrap_or_else(|| panic!("missing group {key}"))\n'
             "}\n"
             "\n"
             "#[cfg(test)]\n"
             "mod tests {\n"
             "    use super::*;\n"
             "    #[test]\n"
-            "    fn parses_numbers() { assert_eq!(parse(\"1\").unwrap(), 1); }\n"
+            '    fn parses_numbers() { assert_eq!(parse("1").unwrap(), 1); }\n'
             "    #[test]\n"
             "    #[ignore]\n"
             "    fn slow_fuzz() { engine(); }\n"
@@ -413,6 +412,7 @@ class TestToolSummaryShowsWhatWasFound:
 
         write(tmp_path, "src/lib.rs", "#[allow(dead_code)]\nfn helper() {}\n")
         result = AntiTheaterTool().run(self._context(tmp_path))
+        assert result.stdout_path is not None
         log = Path(result.stdout_path).read_text(encoding="utf-8")
         assert log.splitlines()[0] == "rule histogram: VT013=1"
 
@@ -449,6 +449,10 @@ class TestPolicyComesFromTheConfigFile:
 
 @pytest.mark.parametrize("rule", ["VT001", "VT002"])
 def test_placeholder_rules_keep_their_confidence(rule, tmp_path):
-    write(tmp_path, "src/lib.rs", "pub fn f() -> i32 { todo!() }\npub fn g() -> i32 { unimplemented!() }\n")
+    write(
+        tmp_path,
+        "src/lib.rs",
+        "pub fn f() -> i32 { todo!() }\npub fn g() -> i32 { unimplemented!() }\n",
+    )
     hits = rules(scan(tmp_path), rule)
     assert hits and hits[0].confidence == "high"

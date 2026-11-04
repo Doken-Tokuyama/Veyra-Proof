@@ -118,7 +118,9 @@ def decide(
         return ", ".join(sorted(set(items))[:limit])
 
     if hash_incongruence:
-        return AuditDecision("REJECTED", "Unauthorized or incongruent project file changes detected", 1)
+        return AuditDecision(
+            "REJECTED", "Unauthorized or incongruent project file changes detected", 1
+        )
 
     if fail_on == "none":
         return AuditDecision("ACCEPTED", "fail-on=none; no hard rejection criteria applied", 0)
@@ -150,7 +152,9 @@ def decide(
 
     if inconclusive_required:
         if fail_on == "inconclusive":
-            return AuditDecision("REJECTED", f"Inconclusive required checks: {_join(inconclusive_required)}", 1)
+            return AuditDecision(
+                "REJECTED", f"Inconclusive required checks: {_join(inconclusive_required)}", 1
+            )
         return AuditDecision(
             "INCONCLUSIVE",
             f"Inconclusive required tool result(s): {_join(inconclusive_required)}",
@@ -158,7 +162,9 @@ def decide(
         )
 
     if inconclusive_optional and fail_on == "inconclusive":
-        return AuditDecision("REJECTED", f"Inconclusive optional checks: {_join(inconclusive_optional)}", 1)
+        return AuditDecision(
+            "REJECTED", f"Inconclusive optional checks: {_join(inconclusive_optional)}", 1
+        )
 
     for tid in required:
         result = by_id.get(tid)
@@ -171,7 +177,9 @@ def decide(
                 2,
             )
         if result.status not in {"OK", "FINDINGS"}:
-            return AuditDecision("INCONCLUSIVE", f"Required tool did not complete cleanly: {tid}", 2)
+            return AuditDecision(
+                "INCONCLUSIVE", f"Required tool did not complete cleanly: {tid}", 2
+            )
 
     return AuditDecision(
         "ACCEPTED",
@@ -268,9 +276,7 @@ def render_timing(accounting: dict[str, Any]) -> str:
     untimed = accounting.get("tools_without_timing") or []
     if untimed:
         never_ran = [e["tool"] for e in untimed if e["status"] in {"SKIPPED", "MISSING"}]
-        unrecorded = [
-            e["tool"] for e in untimed if e["status"] not in {"SKIPPED", "MISSING"}
-        ]
+        unrecorded = [e["tool"] for e in untimed if e["status"] not in {"SKIPPED", "MISSING"}]
         if never_ran:
             lines.append(f"- {len(never_ran)} tool(s) did not run: {', '.join(never_ran)}")
         if unrecorded:
@@ -346,9 +352,7 @@ def render_markdown(
                     if f.line:
                         loc += f":{f.line}"
                     loc += " — "
-                lines.append(
-                    f"- {f.rule} [{f.severity}, {f.confidence}] {loc}{f.explanation}"
-                )
+                lines.append(f"- {f.rule} [{f.severity}, {f.confidence}] {loc}{f.explanation}")
             lines.append("")
     else:
         lines.append("- (none)")
@@ -407,11 +411,21 @@ def write_evidence(
     (evidence_dir / "tools").mkdir(exist_ok=True)
     (evidence_dir / "hashes").mkdir(exist_ok=True)
     (evidence_dir / "report.md").write_text(report_md, encoding="utf-8")
-    (evidence_dir / "report.json").write_text(json.dumps(report_json, indent=2) + "\n", encoding="utf-8")
-    (evidence_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    (evidence_dir / "environment.json").write_text(json.dumps(environment, indent=2) + "\n", encoding="utf-8")
-    (evidence_dir / "workspace.json").write_text(json.dumps(workspace, indent=2) + "\n", encoding="utf-8")
-    (evidence_dir / "changes.json").write_text(json.dumps(changes, indent=2) + "\n", encoding="utf-8")
+    (evidence_dir / "report.json").write_text(
+        json.dumps(report_json, indent=2) + "\n", encoding="utf-8"
+    )
+    (evidence_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    (evidence_dir / "environment.json").write_text(
+        json.dumps(environment, indent=2) + "\n", encoding="utf-8"
+    )
+    (evidence_dir / "workspace.json").write_text(
+        json.dumps(workspace, indent=2) + "\n", encoding="utf-8"
+    )
+    (evidence_dir / "changes.json").write_text(
+        json.dumps(changes, indent=2) + "\n", encoding="utf-8"
+    )
     (evidence_dir / "plan.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     (evidence_dir / "hashes" / "project_files.json").write_text(
         json.dumps(hashes, indent=2) + "\n", encoding="utf-8"

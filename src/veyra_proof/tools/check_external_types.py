@@ -1,10 +1,18 @@
 """cargo-check-external-types."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import library_package_names
 
@@ -25,17 +33,18 @@ class CheckExternalTypesTool(Tool):
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
         return self.detect_via_version(
-            context, ["cargo", "check-external-types", "--version"], absent_message="cargo-check-external-types not installed"
+            context,
+            ["cargo", "check-external-types", "--version"],
+            absent_message="cargo-check-external-types not installed",
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-check-external-types")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "check-external-types"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -49,23 +58,38 @@ class CheckExternalTypesTool(Tool):
         if result.timed_out:
             status, severity, summary = "INCONCLUSIVE", "warning", "check-external-types timed out"
         elif result.exit_code is None:
-            status, severity, summary = "ERROR", "error", result.error or "check-external-types failed"
+            status, severity, summary = (
+                "ERROR",
+                "error",
+                result.error or "check-external-types failed",
+            )
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "No unexpected external types"
         else:
-            findings.append(Finding(
-                rule="external-types",
-                severity="warning",
-                confidence="medium",
-                file=None, line=None, excerpt=None,
-                explanation="cargo-check-external-types reported issues.",
-                recommendation="Review public API exposure of external types.",
-            ))
+            findings.append(
+                Finding(
+                    rule="external-types",
+                    severity="warning",
+                    confidence="medium",
+                    file=None,
+                    line=None,
+                    excerpt=None,
+                    explanation="cargo-check-external-types reported issues.",
+                    recommendation="Review public API exposure of external types.",
+                )
+            )
             status, severity, summary = "FINDINGS", "warning", "External type findings"
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

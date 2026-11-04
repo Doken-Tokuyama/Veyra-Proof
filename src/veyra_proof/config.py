@@ -184,15 +184,15 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
 
     build_profile = raw.get("build_profile", "debug")
     if build_profile not in {"debug", "release"}:
-        errors.append(
-            f"[e2e].build_profile must be 'debug' or 'release', got {build_profile!r}"
-        )
+        errors.append(f"[e2e].build_profile must be 'debug' or 'release', got {build_profile!r}")
         build_profile = "debug"
 
     try:
         timeout_seconds = int(raw.get("timeout_seconds", 60))
     except (TypeError, ValueError):
-        errors.append(f"[e2e].timeout_seconds must be an integer, got {raw.get('timeout_seconds')!r}")
+        errors.append(
+            f"[e2e].timeout_seconds must be an integer, got {raw.get('timeout_seconds')!r}"
+        )
         timeout_seconds = 60
     if timeout_seconds <= 0:
         errors.append(f"[e2e].timeout_seconds must be positive, got {timeout_seconds}")
@@ -208,7 +208,9 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
     scenarios: list[E2eScenario] = []
     raw_scenarios = raw.get("scenarios", []) or []
     if not isinstance(raw_scenarios, list):
-        errors.append(f"[e2e].scenarios must be an array of tables, got {type(raw_scenarios).__name__}")
+        errors.append(
+            f"[e2e].scenarios must be an array of tables, got {type(raw_scenarios).__name__}"
+        )
         raw_scenarios = []
 
     seen_names: set[str] = set()
@@ -220,7 +222,9 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
 
         name = entry.get("name")
         if not isinstance(name, str) or not name.strip():
-            errors.append(f"{where}: missing 'name' (a scenario nobody can name cannot be reported)")
+            errors.append(
+                f"{where}: missing 'name' (a scenario nobody can name cannot be reported)"
+            )
             continue
         if name in seen_names:
             errors.append(f"{where}: duplicate scenario name {name!r}")

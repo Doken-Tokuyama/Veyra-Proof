@@ -1,10 +1,11 @@
 """cargo-llvm-cov."""
+
 from __future__ import annotations
 
 import re
 import shutil
 
-from veyra_proof.models import DetectionResult, Finding, InstallPlan, InstallStep
+from veyra_proof.models import DetectionResult, Finding, InstallPlan, InstallStep, ToolResult
 from veyra_proof.tools.base import AuditContext, Tool, classify_from_command, utc_now_iso
 
 LINE_PCT_RE = re.compile(
@@ -33,10 +34,12 @@ class LlvmCovTool(Tool):
         if not shutil.which("cargo"):
             return DetectionResult(self.id, "MISSING", False, message="cargo not on PATH")
         return self.detect_via_version(
-            context, ["cargo", "llvm-cov", "--version"], absent_message="cargo-llvm-cov not installed"
+            context,
+            ["cargo", "llvm-cov", "--version"],
+            absent_message="cargo-llvm-cov not installed",
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         steps = []
         if shutil.which("rustup"):
             steps.append(
@@ -53,10 +56,10 @@ class LlvmCovTool(Tool):
         )
         return InstallPlan(self.id, self.display_name, "cargo_install", None, steps)
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "llvm-cov", "--workspace", "--summary-only"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         has_nextest = context.runner.run(["cargo", "nextest", "--version"], timeout=15)
         if has_nextest.exit_code == 0 and not has_nextest.timed_out:

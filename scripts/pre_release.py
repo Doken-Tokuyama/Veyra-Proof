@@ -177,9 +177,7 @@ def tree_fingerprint(root: Path) -> str:
     Returns ``""`` when the tree cannot be hashed. An empty fingerprint resumes
     nothing, because a cache that cannot be tied to an exact tree is not evidence.
     """
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True
-    )
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True)
     listing = subprocess.run(
         ["git", "ls-files", "-co", "--exclude-standard", "-z"],
         cwd=root,
@@ -220,9 +218,7 @@ def write_ledger(path: Path, ledger: dict) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        temporary.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     except OSError:
         return False
@@ -268,11 +264,7 @@ def release_artifacts(root: Path) -> list[str]:
     release's evidence; validating them says nothing about what was just built.
     """
     version = declared_version(root)
-    return sorted(
-        str(path)
-        for path in (root / "dist").glob(f"*{version}*")
-        if path.is_file()
-    )
+    return sorted(str(path) for path in (root / "dist").glob(f"*{version}*") if path.is_file())
 
 
 def twine_command(root: Path) -> list[str]:
@@ -571,8 +563,7 @@ def skill_release_block(root: Path) -> str | None:
     if completed.stdout.strip():
         return (
             "the tracked skill files have uncommitted changes, so the tag would "
-            "release something other than what this gate checked:\n"
-            + completed.stdout.strip()
+            "release something other than what this gate checked:\n" + completed.stdout.strip()
         )
     return None
 
@@ -659,9 +650,7 @@ def origin_tag_block(root: Path, name: str) -> str | None:
         return None
     held = remote.get(f"refs/tags/{name}", "")
     local = _git(root, "rev-parse", f"refs/tags/{name}")
-    commit_local = _git(
-        root, "rev-parse", f"refs/tags/{name}^{{commit}}" if local else "HEAD"
-    )
+    commit_local = _git(root, "rev-parse", f"refs/tags/{name}^{{commit}}" if local else "HEAD")
     return origin_tag_conflict(
         held, remote.get(f"refs/tags/{name}^{{}}", "") or held, local, commit_local, name
     )
@@ -820,9 +809,7 @@ def footer_row(label: str, body: list[str]) -> list[str]:
     rather than under the label. This is the only place that shape is decided — the
     body is content, and the same body is what the record stores and the notes show.
     """
-    return [
-        f"  {label if index == 0 else '':<10}{line}" for index, line in enumerate(body)
-    ]
+    return [f"  {label if index == 0 else '':<10}{line}" for index, line in enumerate(body)]
 
 
 def release_state_body(
@@ -1075,8 +1062,7 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
         return 2
     if args.tag and args.skip:
         print(
-            "--skip and --tag cannot be combined: a tag gated by a partial checklist "
-            "is not gated",
+            "--skip and --tag cannot be combined: a tag gated by a partial checklist is not gated",
             file=sys.stderr,
         )
         return 2
@@ -1126,9 +1112,7 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
             "fingerprint": fingerprint,
             "recorded_at": now,
             "steps": {
-                result.step.name: result.resumed_at or now
-                for result in results
-                if result.ok
+                result.step.name: result.resumed_at or now for result in results if result.ok
             },
             "measured": {
                 result.step.name: {
@@ -1149,11 +1133,9 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
             "state": {
                 "release": release_state_body(github, release_name, message, notes_label),
                 "pypi": pypi_state_body(
-                    {
-                        result.step.name: result.facts
-                        for result in results
-                        if result.facts
-                    }.get("published")
+                    {result.step.name: result.facts for result in results if result.facts}.get(
+                        "published"
+                    )
                 ),
             },
         }
@@ -1213,7 +1195,9 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
             already = done_already(step, ledger)
             if already:
                 results.append(
-                    Result(step, 0, "", resumed_at=already, **resumed_measurement(ledger, step.name))
+                    Result(
+                        step, 0, "", resumed_at=already, **resumed_measurement(ledger, step.name)
+                    )
                 )
             else:
                 results.append(run_step(step, root))
@@ -1251,8 +1235,11 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
             print(f"    {step.why}")
         elif step.name in DEFERRED and not deferred_ran:
             print()
-            print(f"--- {step.name}: NOT RUN ({', '.join(blocked)} failed)" if blocked
-                  else f"--- {step.name}: NOT RUN (nothing was measured)")
+            print(
+                f"--- {step.name}: NOT RUN ({', '.join(blocked)} failed)"
+                if blocked
+                else f"--- {step.name}: NOT RUN (nothing was measured)"
+            )
             print(f"    {step.why}")
             print("    it reads what the other steps measured, and that record is not")
             print("    complete — notes written from it would describe a run that did not")
@@ -1263,17 +1250,19 @@ def main(argv: list[str] | None = None, steps: list[Step] | None = None) -> int:
     print()
     print("=== verdict")
     if failed:
-        print(f"  FAIL  {len(failed)} of {len(results)} step(s) failed: "
-              f"{', '.join(result.step.name for result in failed)}")
-        print("        The release is not ready; a tag would name artifacts that fail these checks.")
+        print(
+            f"  FAIL  {len(failed)} of {len(results)} step(s) failed: "
+            f"{', '.join(result.step.name for result in failed)}"
+        )
+        print(
+            "        The release is not ready; a tag would name artifacts that fail these checks."
+        )
         return 1
 
     resumed = [result for result in results if result.resumed_at]
     print(f"  PASS  all {len(results)} step(s) passed.")
     if resumed:
-        print(
-            f"        {len(resumed)} of them resumed: already verified on this unchanged tree"
-        )
+        print(f"        {len(resumed)} of them resumed: already verified on this unchanged tree")
         print("        by an earlier run, matched by fingerprint rather than assumed.")
     print(
         "        A WARN about the Freebuff Desktop account copy is not a blocker: that\n"

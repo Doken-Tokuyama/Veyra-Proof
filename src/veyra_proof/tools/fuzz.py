@@ -1,11 +1,19 @@
 """cargo-fuzz."""
+
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import fuzz_directory
 
@@ -30,16 +38,18 @@ class CargoFuzzTool(Tool):
             context, ["cargo", "fuzz", "--version"], absent_message="cargo-fuzz not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-fuzz")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         targets = list(context.config.fuzz.targets)
         budget = context.config.fuzz.max_total_time_seconds
-        return [["cargo", "+nightly", "fuzz", "run", t, "--", f"-max_total_time={budget}"] for t in targets]
+        return [
+            ["cargo", "+nightly", "fuzz", "run", t, "--", f"-max_total_time={budget}"]
+            for t in targets
+        ]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -48,7 +58,9 @@ class CargoFuzzTool(Tool):
             return self.skipped(context, "no fuzz/ directory or configured targets found")
         targets = list(context.config.fuzz.targets)
         if not targets:
-            return self.skipped(context, "no fuzz.targets listed in veyra.toml; refusing to invent targets")
+            return self.skipped(
+                context, "no fuzz.targets listed in veyra.toml; refusing to invent targets"
+            )
         if not context.platform.nightly_available:
             # still try +nightly; may fail
             pass
@@ -59,52 +71,80 @@ class CargoFuzzTool(Tool):
         for target in targets:
             cmd = ["cargo", "+nightly", "fuzz", "run", target, "--", f"-max_total_time={budget}"]
             last_cmd = cmd
-            result = context.runner.run(cmd, cwd=context.root, timeout=max(context.timeout_seconds, float(budget) + 60))
+            result = context.runner.run(
+                cmd, cwd=context.root, timeout=max(context.timeout_seconds, float(budget) + 60)
+            )
             last_result = result
             out, err = self.write_logs(context, result.stdout, result.stderr)
             text = result.stdout + "\n" + result.stderr
             if result.timed_out:
                 tr = self.make_result(
-                    status="INCONCLUSIVE", severity="warning", summary=f"fuzz target {target} timed out",
-                    started_at=started, command=cmd, exit_code=result.exit_code,
-                    duration_seconds=result.duration_seconds, stdout_path=out, stderr_path=err,
+                    status="INCONCLUSIVE",
+                    severity="warning",
+                    summary=f"fuzz target {target} timed out",
+                    started_at=started,
+                    command=cmd,
+                    exit_code=result.exit_code,
+                    duration_seconds=result.duration_seconds,
+                    stdout_path=out,
+                    stderr_path=err,
                 )
                 self.save_result_json(context, tr)
                 return tr
-            if result.exit_code not in (0, None) and ("crash" in text.lower() or "panic" in text.lower() or "ERROR: libFuzzer" in text):
-                findings.append(Finding(
-                    rule="fuzz-crash",
-                    severity="blocker",
-                    confidence="high",
-                    file=str(Path("fuzz") / "fuzz_targets" / f"{target}.rs"),
-                    line=None, excerpt=target,
-                    explanation=f"Fuzz target {target} produced a crash/panic/sanitizer finding.",
-                    recommendation="Minimize the crashing input and fix the defect.",
-                ))
+            if result.exit_code not in (0, None) and (
+                "crash" in text.lower() or "panic" in text.lower() or "ERROR: libFuzzer" in text
+            ):
+                findings.append(
+                    Finding(
+                        rule="fuzz-crash",
+                        severity="blocker",
+                        confidence="high",
+                        file=str(Path("fuzz") / "fuzz_targets" / f"{target}.rs"),
+                        line=None,
+                        excerpt=target,
+                        explanation=f"Fuzz target {target} produced a crash/panic/sanitizer finding.",
+                        recommendation="Minimize the crashing input and fix the defect.",
+                    )
+                )
             elif result.exit_code not in (0, None) and result.exit_code is not None:
                 # target may not exist
                 if "does not exist" in text.lower() or "no such" in text.lower():
                     return self.skipped(context, f"fuzz target {target!r} does not exist")
-                findings.append(Finding(
-                    rule="fuzz-error",
-                    severity="error",
-                    confidence="medium",
-                    file=None, line=None, excerpt=target,
-                    explanation=f"Fuzz target {target} exited non-zero; see logs.",
-                    recommendation="Inspect fuzz logs.",
-                ))
+                findings.append(
+                    Finding(
+                        rule="fuzz-error",
+                        severity="error",
+                        confidence="medium",
+                        file=None,
+                        line=None,
+                        excerpt=target,
+                        explanation=f"Fuzz target {target} exited non-zero; see logs.",
+                        recommendation="Inspect fuzz logs.",
+                    )
+                )
         if findings:
             status, severity, summary = "FINDINGS", "blocker", "Fuzz findings detected"
         else:
-            status, severity, summary = "OK", "info", (
-                "No crash found within configured fuzzing budget; this is not a proof of absence of defects."
+            status, severity, summary = (
+                "OK",
+                "info",
+                (
+                    "No crash found within configured fuzzing budget; this is not a proof of absence of defects."
+                ),
             )
         assert last_result is not None and last_cmd is not None
         out, err = self.write_logs(context, last_result.stdout, last_result.stderr)
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=last_cmd, exit_code=last_result.exit_code, duration_seconds=last_result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=last_cmd,
+            exit_code=last_result.exit_code,
+            duration_seconds=last_result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

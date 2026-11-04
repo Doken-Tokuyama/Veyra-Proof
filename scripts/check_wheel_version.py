@@ -113,9 +113,7 @@ def clean_environment() -> dict[str, str]:
     the venv is never consulted.
     """
     env = {
-        key: value
-        for key, value in os.environ.items()
-        if key not in {"PYTHONPATH", "PYTHONHOME"}
+        key: value for key, value in os.environ.items() if key not in {"PYTHONPATH", "PYTHONHOME"}
     }
     env.update(PIP_ENVIRONMENT)
     return env
@@ -155,10 +153,7 @@ def probe(
     confirmed: list[str] = []
     env = clean_environment()
 
-    script = (
-        "import importlib.metadata as m, sys;"
-        f"sys.stdout.write(m.version({DIST_NAME!r}))"
-    )
+    script = f"import importlib.metadata as m, sys;sys.stdout.write(m.version({DIST_NAME!r}))"
     completed = run([str(python), "-c", script], env)
     reported = completed.stdout.strip()
     if completed.returncode != 0:
@@ -182,7 +177,9 @@ def probe(
     completed = run([str(python), "-c", script], env)
     lines = completed.stdout.strip().splitlines()
     if completed.returncode != 0:
-        problems.append(f"module: importing {MODULE_NAME} in the venv failed: {completed.stderr.strip()}")
+        problems.append(
+            f"module: importing {MODULE_NAME} in the venv failed: {completed.stderr.strip()}"
+        )
     else:
         reported = lines[0].strip() if lines else ""
         origin = Path(lines[1].strip()) if len(lines) > 1 else None
@@ -201,8 +198,7 @@ def probe(
             # is the report a release cites, and `Lib\site-packages\…` and
             # `lib/site-packages/…` are the same finding spelled two ways.
             confirmed.append(
-                f"module {reported} from "
-                f"{origin.as_posix() if origin is not None else 'nowhere'}"
+                f"module {reported} from {origin.as_posix() if origin is not None else 'nowhere'}"
             )
 
     # Two ways a user can ask, so a wheel with a broken entry point is not hidden
@@ -255,9 +251,7 @@ def write_report(path: Path, facts: dict, ok: bool) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     except OSError as error:
         print(f"note: could not write the report to {path}: {error}", file=sys.stderr)

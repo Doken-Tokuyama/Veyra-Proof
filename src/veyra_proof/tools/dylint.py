@@ -1,4 +1,5 @@
 """Dylint."""
+
 from __future__ import annotations
 
 import shutil
@@ -10,6 +11,7 @@ from veyra_proof.models import (
     InstallStep,
     ResultStatus,
     Severity,
+    ToolResult,
 )
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 from veyra_proof.workspace import has_dylint_config
@@ -33,25 +35,31 @@ class DylintTool(Tool):
             context, ["cargo", "dylint", "--version"], absent_message="cargo-dylint not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return InstallPlan(
             tool_id=self.id,
             display_name=self.display_name,
             method="cargo_install",
             target_version=None,
-            steps=[InstallStep("Install dylint", ["cargo", "install", "cargo-dylint", "dylint-link", "--locked"])],
+            steps=[
+                InstallStep(
+                    "Install dylint",
+                    ["cargo", "install", "cargo-dylint", "dylint-link", "--locked"],
+                )
+            ],
         )
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "dylint", "--all"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
         if not has_dylint_config(context.root):
-            return self.skipped(context, "no Dylint configuration or lint libraries found; refusing to invent lints")
+            return self.skipped(
+                context, "no Dylint configuration or lint libraries found; refusing to invent lints"
+            )
         cmd = ["cargo", "dylint", "--all"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
@@ -63,19 +71,30 @@ class DylintTool(Tool):
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "dylint passed"
         else:
-            findings.append(Finding(
-                rule="dylint-finding",
-                severity="error",
-                confidence="high",
-                file=None, line=None, excerpt=None,
-                explanation="dylint reported diagnostics; see logs.",
-                recommendation="Address dylint findings.",
-            ))
+            findings.append(
+                Finding(
+                    rule="dylint-finding",
+                    severity="error",
+                    confidence="high",
+                    file=None,
+                    line=None,
+                    excerpt=None,
+                    explanation="dylint reported diagnostics; see logs.",
+                    recommendation="Address dylint findings.",
+                )
+            )
             status, severity, summary = "FINDINGS", "error", "dylint findings"
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

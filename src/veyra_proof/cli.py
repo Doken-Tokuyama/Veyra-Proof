@@ -60,19 +60,31 @@ def build_parser() -> argparse.ArgumentParser:
     def add_common(p: argparse.ArgumentParser) -> None:
         p.add_argument("path", type=str, help="Path to Cargo package or workspace")
         p.add_argument("--profile", choices=["quick", "standard", "hardened"], default="standard")
-        p.add_argument("--yes", action="store_true", help="Non-interactive authorization for installs")
-        p.add_argument("--install-missing", action="store_true", help="Allow installing compatible missing tools")
+        p.add_argument(
+            "--yes", action="store_true", help="Non-interactive authorization for installs"
+        )
+        p.add_argument(
+            "--install-missing",
+            action="store_true",
+            help="Allow installing compatible missing tools",
+        )
         p.add_argument("--update-lockfile", action="store_true", help="Authorize cargo update")
         p.add_argument(
             "--allow-manifest-changes",
             action="store_true",
             help="Authorize future Cargo.toml mutations (none implemented in V1)",
         )
-        p.add_argument("--include", type=str, default="", help="Comma-separated tool ids to run only")
-        p.add_argument("--exclude", type=str, default="", help="Comma-separated tool ids to exclude")
+        p.add_argument(
+            "--include", type=str, default="", help="Comma-separated tool ids to run only"
+        )
+        p.add_argument(
+            "--exclude", type=str, default="", help="Comma-separated tool ids to exclude"
+        )
         p.add_argument("--evidence-dir", type=str, default=None)
         p.add_argument("--format", choices=["terminal", "markdown", "json", "both"], default="both")
-        p.add_argument("--fail-on", choices=["none", "findings", "error", "inconclusive"], default="findings")
+        p.add_argument(
+            "--fail-on", choices=["none", "findings", "error", "inconclusive"], default="findings"
+        )
         p.add_argument("--dry-run", action="store_true")
         p.add_argument("--timeout", type=float, default=900.0)
         p.add_argument("--verbose", action="store_true")
@@ -166,10 +178,14 @@ def _prepare_context(
     args: argparse.Namespace,
     *,
     create_evidence_dir: bool,
-) -> tuple[AuditContext | None, dict, list, dict[str, DetectionResult], list[InstallPlan], int | None]:
+) -> tuple[
+    AuditContext | None, dict, list, dict[str, DetectionResult], list[InstallPlan], int | None
+]:
     platform = detect_platform(CommandRunner(verbose=bool(args.verbose)))
     if not platform.cargo_path:
-        print("ERROR: Cargo not found on PATH. Install Rust/Cargo before auditing.", file=sys.stderr)
+        print(
+            "ERROR: Cargo not found on PATH. Install Rust/Cargo before auditing.", file=sys.stderr
+        )
         return None, {}, [], {}, [], 2
 
     try:
@@ -282,19 +298,25 @@ def _prepare_context(
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    ctx, plan, tools, detections, install_plans, err = _prepare_context(args, create_evidence_dir=False)
+    ctx, plan, tools, detections, install_plans, err = _prepare_context(
+        args, create_evidence_dir=False
+    )
     if ctx is None:
         return err or 2
     for tool in tools:
         det = detections.get(tool.id)
         if det and not det.available and tool.id not in {p.tool_id for p in install_plans}:
-            plan.setdefault("auto_skip", []).append({"tool": tool.id, "reason": det.message or "missing"})
+            plan.setdefault("auto_skip", []).append(
+                {"tool": tool.id, "reason": det.message or "missing"}
+            )
     print(json.dumps(plan, indent=2))
     return 0
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
-    ctx, plan, tools, detections, install_plans, err = _prepare_context(args, create_evidence_dir=True)
+    ctx, plan, tools, detections, install_plans, err = _prepare_context(
+        args, create_evidence_dir=True
+    )
     if ctx is None:
         return err or 2
 
@@ -324,9 +346,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
     if install_plans:
         authorized = confirm_installs(install_plans, yes=bool(args.yes))
         if not authorized:
-            print("Installation not authorized. Aborting before mutating the system.", file=sys.stderr)
+            print(
+                "Installation not authorized. Aborting before mutating the system.", file=sys.stderr
+            )
             return 2
-        plan["install_authorization"] = "non-interactive (--yes)" if args.yes else "interactive confirmation"
+        plan["install_authorization"] = (
+            "non-interactive (--yes)" if args.yes else "interactive confirmation"
+        )
         for ip in install_plans:
             outcome = execute_install_plan(ip, live, timeout=float(args.timeout))
             plan.setdefault("install_outcomes", []).append(asdict(outcome))
@@ -355,19 +381,21 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 )
                 # Keep going with other tools; this tool will be ERROR/skipped below
             else:
-                detections[tool.id] = tool.detect(AuditContext(
-                    workspace=ctx.workspace,
-                    platform=ctx.platform,
-                    config=ctx.config,
-                    runner=live,
-                    evidence_dir=ctx.evidence_dir,
-                    profile=ctx.profile,
-                    timeout_seconds=ctx.timeout_seconds,
-                    verbose=ctx.verbose,
-                    include=ctx.include,
-                    exclude=ctx.exclude,
-                    extras=ctx.extras,
-                ))
+                detections[tool.id] = tool.detect(
+                    AuditContext(
+                        workspace=ctx.workspace,
+                        platform=ctx.platform,
+                        config=ctx.config,
+                        runner=live,
+                        evidence_dir=ctx.evidence_dir,
+                        profile=ctx.profile,
+                        timeout_seconds=ctx.timeout_seconds,
+                        verbose=ctx.verbose,
+                        include=ctx.include,
+                        exclude=ctx.exclude,
+                        extras=ctx.extras,
+                    )
+                )
 
     if args.update_lockfile:
         if not args.yes:
@@ -434,13 +462,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 )
             continue
         if det and det.status == "SKIPPED":
-            results.append(
-                tool.skipped(ctx, det.message or "skipped", skip_kind="incompatible")
-            )
+            results.append(tool.skipped(ctx, det.message or "skipped", skip_kind="incompatible"))
             continue
         if det and not det.available:
             kind = "missing"
-            results.append(tool.skipped(ctx, det.message or "tool missing and not installed", skip_kind=kind))
+            results.append(
+                tool.skipped(ctx, det.message or "tool missing and not installed", skip_kind=kind)
+            )
             if tool.id in req_ids:
                 missing_required.append(tool.id)
             continue
@@ -481,7 +509,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
     )
     if unauthorized:
         decision.reason = (
-            f"Unauthorized project file changes detected: {', '.join(unauthorized)}. " + decision.reason
+            f"Unauthorized project file changes detected: {', '.join(unauthorized)}. "
+            + decision.reason
         )
         decision.decision = "REJECTED"
         decision.exit_code = 1

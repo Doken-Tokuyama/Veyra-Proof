@@ -1,10 +1,18 @@
 """cargo-vet."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -27,20 +35,22 @@ class CargoVetTool(Tool):
             context, ["cargo", "vet", "--version"], absent_message="cargo-vet not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-vet")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "vet", "check"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
         config = context.root / "supply-chain" / "config.toml"
         if not config.is_file():
-            return self.skipped(context, "no supply-chain/config.toml; refusing to initialize cargo-vet without authorization")
+            return self.skipped(
+                context,
+                "no supply-chain/config.toml; refusing to initialize cargo-vet without authorization",
+            )
         cmd = ["cargo", "vet", "check"]
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
@@ -52,19 +62,30 @@ class CargoVetTool(Tool):
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "cargo-vet check passed"
         else:
-            findings.append(Finding(
-                rule="vet-unreviewed",
-                severity="error",
-                confidence="high",
-                file="supply-chain/config.toml", line=None, excerpt=None,
-                explanation="cargo-vet reported unreviewed/unaudited dependencies.",
-                recommendation="Review and audit crates according to cargo-vet workflow.",
-            ))
+            findings.append(
+                Finding(
+                    rule="vet-unreviewed",
+                    severity="error",
+                    confidence="high",
+                    file="supply-chain/config.toml",
+                    line=None,
+                    excerpt=None,
+                    explanation="cargo-vet reported unreviewed/unaudited dependencies.",
+                    recommendation="Review and audit crates according to cargo-vet workflow.",
+                )
+            )
             status, severity, summary = "FINDINGS", "error", "cargo-vet findings"
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

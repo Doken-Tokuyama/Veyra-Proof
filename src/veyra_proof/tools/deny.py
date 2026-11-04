@@ -1,11 +1,19 @@
 """cargo-deny."""
+
 from __future__ import annotations
 
 import re
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, normalize_newlines, utc_now_iso
 
 DENY_DIAG_RE = re.compile(
@@ -60,13 +68,13 @@ class CargoDenyTool(Tool):
             context, ["cargo", "deny", "--version"], absent_message="cargo-deny not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-deny")
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [["cargo", "deny", "check"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -99,7 +107,11 @@ class CargoDenyTool(Tool):
                 (f.severity for f in findings),
                 key=lambda s: {"info": 0, "warning": 1, "error": 2, "blocker": 3}[s],
             )
-            status, severity, summary = "FINDINGS", max_sev, f"{len(findings)} cargo-deny diagnostic(s)"
+            status, severity, summary = (
+                "FINDINGS",
+                max_sev,
+                f"{len(findings)} cargo-deny diagnostic(s)",
+            )
         tr = self.make_result(
             status=status,
             severity=severity,

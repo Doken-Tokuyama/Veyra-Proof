@@ -1,10 +1,11 @@
 """cargo-nextest."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult
+from veyra_proof.models import DetectionResult, InstallPlan, ToolResult
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
@@ -33,14 +34,13 @@ class NextestTool(Tool):
             context, ["cargo", "nextest", "--version"], absent_message="cargo-nextest not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-nextest")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [self.cargo_command(context, ["cargo", "nextest", "run", "--workspace"])]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         cmd = self.cargo_command(context, ["cargo", "nextest", "run", "--workspace"])
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
@@ -51,22 +51,38 @@ class NextestTool(Tool):
         if result.exit_code not in (0, None) and not findings and not result.timed_out:
             if "FAIL" in text or "failed" in text.lower():
                 from veyra_proof.models import Finding
-                findings.append(Finding(
-                    rule="nextest-failure",
-                    severity="error",
-                    confidence="medium",
-                    file=None, line=None, excerpt=None,
-                    explanation="nextest reported failures; see logs for details.",
-                    recommendation="Inspect tools/nextest logs and fix failing tests.",
-                ))
+
+                findings.append(
+                    Finding(
+                        rule="nextest-failure",
+                        severity="error",
+                        confidence="medium",
+                        file=None,
+                        line=None,
+                        excerpt=None,
+                        explanation="nextest reported failures; see logs for details.",
+                        recommendation="Inspect tools/nextest logs and fix failing tests.",
+                    )
+                )
         status, severity, summary = classify_from_command(
-            timed_out=result.timed_out, exit_code=result.exit_code, findings=findings,
-            stdout=result.stdout, stderr=result.stderr, error=result.error,
+            timed_out=result.timed_out,
+            exit_code=result.exit_code,
+            findings=findings,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            error=result.error,
         )
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

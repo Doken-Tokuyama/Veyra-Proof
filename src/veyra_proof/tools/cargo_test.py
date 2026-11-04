@@ -1,9 +1,10 @@
 """cargo test."""
+
 from __future__ import annotations
 
 import shutil
 
-from veyra_proof.models import DetectionResult
+from veyra_proof.models import DetectionResult, ToolResult
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
@@ -32,10 +33,10 @@ class CargoTestTool(Tool):
             self.id, "INSTALLED", True, version=context.platform.cargo_version, path=path
         )
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [self.cargo_command(context, ["cargo", "test", "--workspace"])]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         cmd = self.cargo_command(context, ["cargo", "test", "--workspace"])
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
@@ -47,9 +48,7 @@ class CargoTestTool(Tool):
         findings.extend(
             parse_ignored_tests(
                 text,
-                severity="error"
-                if context.config.policy.fail_on_ignored_tests
-                else "info",
+                severity="error" if context.config.policy.fail_on_ignored_tests else "info",
             )
         )
         status, severity, summary = classify_from_command(

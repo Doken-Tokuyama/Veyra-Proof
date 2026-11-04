@@ -151,7 +151,11 @@ def required_tool_ids(
     if selected:
         core &= selected
     required = set(core)
-    if workspace is not None and workspace.has_lockfile and "audit" in (selected or PROFILE_ORDER.get(profile, [])):
+    if (
+        workspace is not None
+        and workspace.has_lockfile
+        and "audit" in (selected or PROFILE_ORDER.get(profile, []))
+    ):
         if not selected or "audit" in selected:
             required.add("audit")
     # End-to-end verification becomes a requirement exactly when the project
@@ -178,7 +182,9 @@ def registry_rows() -> list[dict[str, Any]]:
             "version_command": ["cargo", "--version"],
             "install_method": "none",
             "install_command": [],
-            "supported_platforms": [p.value for p in (PlatformOS.WINDOWS, PlatformOS.MACOS, PlatformOS.LINUX)],
+            "supported_platforms": [
+                p.value for p in (PlatformOS.WINDOWS, PlatformOS.MACOS, PlatformOS.LINUX)
+            ],
             "architectures": ["x86_64", "aarch64"],
             "required_rust_toolchain": None,
             "rustup_components": [],

@@ -268,8 +268,7 @@ def verify(
                 declared = declared_e2e_scenarios(target)
                 if declared is not None and len(observed) != declared:
                     fault = (
-                        f"observed {len(observed)} scenario(s) but veyra.toml declares "
-                        f"{declared}"
+                        f"observed {len(observed)} scenario(s) but veyra.toml declares {declared}"
                     )
 
         if fault:
@@ -338,9 +337,7 @@ def write_report(path: Path, facts: dict, ok: bool) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     except OSError as error:
         print(f"note: could not write the report to {path}: {error}", file=sys.stderr)

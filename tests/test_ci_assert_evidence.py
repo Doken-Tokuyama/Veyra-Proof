@@ -83,7 +83,9 @@ def test_well_formed_evidence_passes(checker, tmp_path) -> None:
 
 
 class TestTheMeasurement:
-    def test_what_a_release_note_may_say_comes_out_of_the_artefacts(self, checker, tmp_path) -> None:
+    def test_what_a_release_note_may_say_comes_out_of_the_artefacts(
+        self, checker, tmp_path
+    ) -> None:
         """The gate records these facts, so they are asserted where they are read.
 
         `target`, `profile` and the auditor version are the three that were wrong or
@@ -266,8 +268,7 @@ def _e2e_evidence(tmp_path: Path, *, log_text: str, declared_scenarios: int) -> 
     if declared_scenarios:
         target.mkdir(parents=True, exist_ok=True)
         declarations = "\n".join(
-            f'[[e2e.scenarios]]\nname = "s{i}"\nargv = ["run"]\n'
-            for i in range(declared_scenarios)
+            f'[[e2e.scenarios]]\nname = "s{i}"\nargv = ["run"]\n' for i in range(declared_scenarios)
         )
         (target / "veyra.toml").write_text(declarations, encoding="utf-8")
 
@@ -477,29 +478,29 @@ class TestFindingsNeedOutput:
         assert any("without any captured output" in p for p in problems), problems
 
     def test_findings_with_real_output_still_passes(self, checker, tmp_path) -> None:
-            directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
-            log = directory / "tools" / "rustfmt" / "stdout.log"
-            log.write_text("Diff in /w/src/lib.rs at line 1:\n", encoding="utf-8")
-            digest = _sha256(log)
-            for path in (
-                directory / "tools" / "rustfmt" / "result.json",
-                directory / "report.json",
-            ):
-                data = json.loads(path.read_text(encoding="utf-8"))
-                target = (
-                    data["artifact_hashes"]
-                    if path.name == "result.json"
-                    else data["results"][0]["artifact_hashes"]
-                )
-                target["stdout.log"] = digest
-                if path.name == "report.json":
-                    data["decision"]["exit_code"] = 1
-                path.write_text(json.dumps(data), encoding="utf-8")
-    
-            problems, confirmed = checker.verify(directory, 1)
-    
-            assert problems == [], problems
-            assert any("rustfmt FINDINGS exit 1" in c for c in confirmed)
+        directory = _evidence(tmp_path, status="FINDINGS", exit_code=1)
+        log = directory / "tools" / "rustfmt" / "stdout.log"
+        log.write_text("Diff in /w/src/lib.rs at line 1:\n", encoding="utf-8")
+        digest = _sha256(log)
+        for path in (
+            directory / "tools" / "rustfmt" / "result.json",
+            directory / "report.json",
+        ):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            target = (
+                data["artifact_hashes"]
+                if path.name == "result.json"
+                else data["results"][0]["artifact_hashes"]
+            )
+            target["stdout.log"] = digest
+            if path.name == "report.json":
+                data["decision"]["exit_code"] = 1
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+        problems, confirmed = checker.verify(directory, 1)
+
+        assert problems == [], problems
+        assert any("rustfmt FINDINGS exit 1" in c for c in confirmed)
 
     def test_a_silent_success_is_still_accepted(self, checker, tmp_path) -> None:
         """`cargo fmt --check` on clean code prints nothing. That is not a defect."""

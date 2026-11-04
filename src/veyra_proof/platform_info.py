@@ -84,17 +84,23 @@ def detect_platform(runner: CommandRunner | None = None) -> PlatformInfo:
     if info.cargo_path:
         r = runner.run([info.cargo_path, "--version"], timeout=15)
         if r.exit_code == 0 and not r.timed_out:
-            info.cargo_version = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
+            info.cargo_version = (
+                (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
+            )
 
     if info.rustc_path:
         r = runner.run([info.rustc_path, "--version"], timeout=15)
         if r.exit_code == 0 and not r.timed_out:
-            info.rustc_version = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
+            info.rustc_version = (
+                (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
+            )
 
     if info.rustup_path:
         r = runner.run([info.rustup_path, "--version"], timeout=15)
         if r.exit_code == 0 and not r.timed_out:
-            info.rustup_version = (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
+            info.rustup_version = (
+                (r.stdout or r.stderr).strip().splitlines()[0] if (r.stdout or r.stderr) else None
+            )
 
         show = runner.run([info.rustup_path, "show", "active-toolchain"], timeout=20)
         if show.exit_code == 0 and not show.timed_out and show.stdout.strip():

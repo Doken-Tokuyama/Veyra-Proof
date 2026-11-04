@@ -14,7 +14,9 @@ def test_hash_and_change_detection(tmp_path):
 
 
 def test_lockfile_creation_not_unauthorized():
-    changes = [{"path": "Cargo.lock", "change": "created", "before_sha256": None, "after_sha256": "abc"}]
+    changes = [
+        {"path": "Cargo.lock", "change": "created", "before_sha256": None, "after_sha256": "abc"}
+    ]
     annotated, unauthorized = classify_project_changes(
         changes,
         update_lockfile=False,
@@ -26,7 +28,9 @@ def test_lockfile_creation_not_unauthorized():
 
 
 def test_lockfile_modification_unauthorized_without_flag():
-    changes = [{"path": "Cargo.lock", "change": "modified", "before_sha256": "a", "after_sha256": "b"}]
+    changes = [
+        {"path": "Cargo.lock", "change": "modified", "before_sha256": "a", "after_sha256": "b"}
+    ]
     _, unauthorized = classify_project_changes(
         changes,
         update_lockfile=False,

@@ -122,7 +122,12 @@ class TestTheGuideDescribesTheCodeThatExists:
 
     def test_it_names_the_commands_a_contributor_has_to_know(self):
         guide = _guide()
-        for name in ("sync_skill.py", "check_skills.py", "check_account_skill.py", "pre_release.py"):
+        for name in (
+            "sync_skill.py",
+            "check_skills.py",
+            "check_account_skill.py",
+            "pre_release.py",
+        ):
             assert name in guide, f"the guide never mentions {name}"
 
     def test_every_flag_it_tells_you_to_pass_exists(self):
@@ -258,18 +263,16 @@ class TestTheGuideStatesWhatTheLinkCosts:
 class TestTheGuideReachesItsReaders:
     def test_the_readme_points_at_it(self):
         readme = README.read_text(encoding="utf-8")
-        assert GUIDE.name in readme, (
-            "a contributor reading the README never finds the guide"
-        )
+        assert GUIDE.name in readme, "a contributor reading the README never finds the guide"
 
     def test_the_sdist_carries_it(self):
         """The archive ships the guide, and the two skill copies the guide claims.
 
-        The guide tells a reader of the sdist which places exist and which of them
-they are holding. That claim is only true while `MANIFEST.in` lists both — the
-        canonical skill and the published copy — so both are asserted against the
-        manifest rather than assumed, and the absence of a harness fan-out is stated
-        in the guide as the reason there is nothing to link in that archive.
+                The guide tells a reader of the sdist which places exist and which of them
+        they are holding. That claim is only true while `MANIFEST.in` lists both — the
+                canonical skill and the published copy — so both are asserted against the
+                manifest rather than assumed, and the absence of a harness fan-out is stated
+                in the guide as the reason there is nothing to link in that archive.
         """
         manifest = MANIFEST.read_text(encoding="utf-8")
         assert GUIDE.name in manifest, (

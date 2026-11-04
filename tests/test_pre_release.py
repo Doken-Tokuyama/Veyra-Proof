@@ -150,9 +150,7 @@ def test_a_failing_step_refuses_the_release(gate, released, capsys) -> None:
     assert "build" in out
 
 
-def test_every_step_runs_so_one_pass_does_not_hide_two_problems(
-    gate, released, capsys
-) -> None:
+def test_every_step_runs_so_one_pass_does_not_hide_two_problems(gate, released, capsys) -> None:
     """A checklist that stops at the first failure makes you release in stages."""
     code = gate.main(
         ["--root", str(released)],
@@ -324,9 +322,7 @@ def test_a_tag_is_refused_while_the_skill_is_uncommitted(gate, released, capsys)
 
 
 @needs_git
-def test_a_tag_is_refused_when_git_does_not_track_the_skill(
-    gate, tmp_path: Path, capsys
-) -> None:
+def test_a_tag_is_refused_when_git_does_not_track_the_skill(gate, tmp_path: Path, capsys) -> None:
     """The trap: `git status` hides ignored paths, so a clean report proves nothing.
 
     A skill file matched by an ignore rule reads as clean while git would never
@@ -694,7 +690,9 @@ def test_a_rerun_after_the_tag_does_not_replay_the_checklist(
     assert _tags(released) == "v0.4.2"
 
 
-def test_the_gate_says_what_is_left_and_what_it_will_not_do(gate, released, tmp_path, capsys) -> None:
+def test_the_gate_says_what_is_left_and_what_it_will_not_do(
+    gate, released, tmp_path, capsys
+) -> None:
     """It stops at the tag on purpose; the remaining commands are spelled out."""
     steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
     code = _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline")
@@ -712,7 +710,9 @@ def test_the_gate_says_what_is_left_and_what_it_will_not_do(gate, released, tmp_
     )
 
 
-def test_the_remaining_report_names_the_notes_file_it_can_see(gate, released, tmp_path, capsys) -> None:
+def test_the_remaining_report_names_the_notes_file_it_can_see(
+    gate, released, tmp_path, capsys
+) -> None:
     """When the release body exists, the command to publish it is copy-pasteable."""
     (released / ".freebuff").mkdir()
     (released / ".freebuff" / "release-notes-v0.4.2.md").write_text("notes\n", encoding="utf-8")
@@ -740,9 +740,7 @@ def _bare_origin(released: Path, tmp_path: Path) -> Path:
     answered, not about what a fake one was told to answer.
     """
     bare = tmp_path / "origin.git"
-    subprocess.run(
-        ["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True
-    )
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True)
     # Name the bare's default branch instead of inheriting `init.defaultBranch`.
     # That setting is `main` on this developer machine and `master` on a GitHub
     # runner, where five jobs failed: the clone below checked out nothing, the
@@ -790,7 +788,9 @@ def test_a_tag_that_went_up_is_reported_as_pushed(gate, released, tmp_path, caps
 
 
 @needs_git
-def test_a_tag_only_this_clone_has_is_reported_as_unpushed(gate, released, tmp_path, capsys) -> None:
+def test_a_tag_only_this_clone_has_is_reported_as_unpushed(
+    gate, released, tmp_path, capsys
+) -> None:
     """The other half: same report, tag local-only, so the push command is what is left."""
     _bare_origin(released, tmp_path)
     steps = _build(gate, _counting("tests", tmp_path / "runs.txt"))
@@ -868,9 +868,7 @@ def test_an_origin_tag_on_another_commit_refuses_the_tag_naming_the_other_commit
     """Same name, different history: never call it the same release — or cut over it."""
     bare = _bare_origin(released, tmp_path)
     scratch = tmp_path / "scratch"
-    subprocess.run(
-        ["git", "clone", "-q", str(bare), str(scratch)], check=True, capture_output=True
-    )
+    subprocess.run(["git", "clone", "-q", str(bare), str(scratch)], check=True, capture_output=True)
     for argv in (
         ["git", "config", "user.email", "test@example.com"],
         ["git", "config", "user.name", "Test"],
@@ -914,7 +912,9 @@ def test_an_origin_that_cannot_be_asked_says_unproven_rather_than_guessing(
     assert code == 0
     assert "cannot ask it" in out
     assert "is unproven, not assumed" in out
-    assert "git push origin v0.4.2" in out, "the command stays copy-pasteable when the state does not"
+    assert "git push origin v0.4.2" in out, (
+        "the command stays copy-pasteable when the state does not"
+    )
     capsys.readouterr()
 
     assert _run(gate, released, steps, "--tag", "v0.4.2", "--title", "a headline") == 0
@@ -943,7 +943,10 @@ def test_an_existing_tag_that_is_not_ours_still_refuses(gate, released, capsys) 
 def test_a_tag_for_another_commit_still_refuses(gate, released, capsys) -> None:
     """A tag left on an older commit would name a release nobody verified."""
     subprocess.run(
-        ["git", "tag", "-a", "v0.4.2", "-m", "v0.4.2"], cwd=released, check=True, capture_output=True
+        ["git", "tag", "-a", "v0.4.2", "-m", "v0.4.2"],
+        cwd=released,
+        check=True,
+        capture_output=True,
     )
     (released / "later.txt").write_text("moved on\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=released, check=True, capture_output=True)
@@ -1002,11 +1005,9 @@ def test_the_notes_step_writes_them_from_the_record(gate) -> None:
     assert f"--root {REPO_ROOT}" in argv
 
     titled = next(
-        step
-        for step in gate.default_steps(REPO_ROOT, "a headline")
-        if step.name == "notes"
+        step for step in gate.default_steps(REPO_ROOT, "a headline") if step.name == "notes"
     )
-    assert '--title a headline' in " ".join(titled.commands[0]()), (
+    assert "--title a headline" in " ".join(titled.commands[0]()), (
         "the notes carry the same headline as the tag, and it comes from --title"
     )
 
@@ -1031,15 +1032,10 @@ def test_a_deferred_step_runs_after_the_record_is_written(gate, released, capsys
     ordering claim — not merely that the names are sorted a particular way.
     """
     state = gate.default_state(released)
-    body = (
-        f"import pathlib, sys; "
-        f"sys.exit(0 if pathlib.Path(r'{state}').is_file() else 3)"
-    )
+    body = f"import pathlib, sys; sys.exit(0 if pathlib.Path(r'{state}').is_file() else 3)"
 
     def deferred_step(gate_module):
-        return gate_module.Step(
-            "notes", "why", (lambda: [sys.executable, "-c", body],)
-        )
+        return gate_module.Step("notes", "why", (lambda: [sys.executable, "-c", body],))
 
     code = gate.main(
         ["--root", str(released)],
@@ -1071,9 +1067,10 @@ def test_a_step_whose_product_is_a_file_is_never_resumed(gate, released, tmp_pat
     assert _run(gate, released, steps) == 0
     assert _runs(counter) == 2, "a derived file was assumed to still be there"
 
-    assert next(
-        step for step in gate.default_steps(REPO_ROOT) if step.name == "notes"
-    ).resumable is False, "the real notes step has to carry that flag too"
+    assert (
+        next(step for step in gate.default_steps(REPO_ROOT) if step.name == "notes").resumable
+        is False
+    ), "the real notes step has to carry that flag too"
 
 
 @needs_git
@@ -1112,9 +1109,7 @@ def test_the_platforms_step_asks_the_other_platforms_for_this_commit(gate) -> No
     HEAD of the repository the script is looking at, and the gate can be pointed at
     another one.
     """
-    platforms = next(
-        step for step in gate.default_steps(REPO_ROOT) if step.name == "platforms"
-    )
+    platforms = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "platforms")
     commands = " ".join(" ".join(build_argv()) for build_argv in platforms.commands)
 
     assert "check_platforms.py" in commands
@@ -1164,9 +1159,7 @@ def test_the_wheel_step_checks_the_artefact_that_was_just_built(gate) -> None:
 def test_the_index_is_asked_after_the_audit_and_before_the_notes(gate) -> None:
     """It compares what was built, and the notes carry its measurement."""
     names = [step.name for step in gate.default_steps(REPO_ROOT)]
-    published = next(
-        step for step in gate.default_steps(REPO_ROOT) if step.name == "published"
-    )
+    published = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "published")
     commands = " ".join(" ".join(build_argv()) for build_argv in published.commands)
 
     assert names.index("wheel") < names.index("published") < names.index("notes"), names
@@ -1185,9 +1178,7 @@ def test_the_index_step_is_never_resumed(gate) -> None:
     A resumed answer would keep the release notes saying nothing was published about a
     version that is.
     """
-    published = next(
-        step for step in gate.default_steps(REPO_ROOT) if step.name == "published"
-    )
+    published = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "published")
 
     assert published.resumable is False
 
@@ -1225,7 +1216,6 @@ def test_a_step_that_asks_the_world_again_replaces_what_it_measured(
     ledger = json.loads(gate.default_state(released).read_text(encoding="utf-8"))
     assert ledger["measured"]["published"]["facts"] == {"published": False}
 
-
     answer.write_text("present", encoding="utf-8")
     assert _run(gate, released, steps) == 0
     ledger = json.loads(gate.default_state(released).read_text(encoding="utf-8"))
@@ -1237,9 +1227,7 @@ def test_a_step_that_asks_the_world_again_replaces_what_it_measured(
 
 def test_the_checklist_includes_the_copy_check(gate) -> None:
     """Without this step the gate cannot notice a skill copy that disagrees."""
-    copies = next(
-        step for step in gate.default_steps(REPO_ROOT) if step.name == "copies"
-    )
+    copies = next(step for step in gate.default_steps(REPO_ROOT) if step.name == "copies")
     commands = " ".join(" ".join(build_argv()) for build_argv in copies.commands)
 
     assert "check_skills.py" in commands
@@ -1504,12 +1492,10 @@ def test_the_record_carries_the_rows_the_footer_prints(
     assert code == 0
     assert rows["release"] == [
         "no release for this tag on GitHub yet",
-        "gh release create v0.4.2 --title \"v0.4.2 — a headline\" "
+        'gh release create v0.4.2 --title "v0.4.2 — a headline" '
         "--notes-file .freebuff/release-notes-v0.4.2.md",
     ]
-    assert rows["pypi"] == [
-        "https://pypi.org serves 0.4.2: veyra_proof-0.4.2-py3-none-any.whl"
-    ]
+    assert rows["pypi"] == ["https://pypi.org serves 0.4.2: veyra_proof-0.4.2-py3-none-any.whl"]
     for line in rows["release"] + rows["pypi"]:
         assert line in out, f"the footer printed a row the record does not hold: {line}"
 
@@ -1564,13 +1550,11 @@ def test_a_github_question_that_could_not_be_asked_is_recorded_as_unproven(
     rows = _ledger(gate, released)["state"]
 
     assert code == 0
-    assert rows["release"][0] == (
-        "whether the release exists is unproven (no git remotes found)"
-    )
+    assert rows["release"][0] == ("whether the release exists is unproven (no git remotes found)")
     assert rows["release"][0] in out
-    assert any(
-        line.startswith("gh release create") for line in rows["release"]
-    ), "a question that failed suppresses nothing"
+    assert any(line.startswith("gh release create") for line in rows["release"]), (
+        "a question that failed suppresses nothing"
+    )
 
 
 @needs_git
@@ -1592,10 +1576,7 @@ def test_the_recorded_command_names_the_notes_file_whether_or_not_it_exists_yet(
 
     assert code == 0
     assert not (released / ".freebuff" / "release-notes-v0.4.2.md").exists()
-    assert any(
-        "--notes-file .freebuff/release-notes-v0.4.2.md" in line
-        for line in rows["release"]
-    )
+    assert any("--notes-file .freebuff/release-notes-v0.4.2.md" in line for line in rows["release"])
     assert "--notes-file <notes-file>" not in out
     assert "there is no notes file at .freebuff/release-notes-v0.4.2.md" in out, (
         "the missing file is still reported — as the footer's own warning"

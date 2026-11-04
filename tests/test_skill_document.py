@@ -134,9 +134,7 @@ def test_skill_stays_within_token_budget() -> None:
 def test_readme_documents_every_declared_harness(sync) -> None:
     """Each harness the sync script targets must be named in the README table."""
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    labels = {t.label for t in sync.GLOBAL_TARGETS} | {
-        t.label for t in sync.PROJECT_TARGETS
-    }
+    labels = {t.label for t in sync.GLOBAL_TARGETS} | {t.label for t in sync.PROJECT_TARGETS}
     undocumented = sorted(label for label in labels if label.lower() not in readme.lower())
     assert not undocumented, f"harnesses missing from the README table: {undocumented}"
 
@@ -145,9 +143,7 @@ def test_skill_holds_no_maintainer_facing_sections() -> None:
     """Maintainer material in SKILL.md is dead weight in the agent's context."""
     headings = set(re.findall(r"^## (.+)$", _skill_text(), re.M))
     for banned in ("Harness portability", "Mutation protocol", "Maintaining"):
-        assert banned not in headings, (
-            f"'{banned}' belongs in the README, not in SKILL.md"
-        )
+        assert banned not in headings, f"'{banned}' belongs in the README, not in SKILL.md"
 
 
 # --------------------------------------------------------------------------
@@ -212,9 +208,7 @@ def sync(tmp_path, monkeypatch):
 def _seed_skill(root: Path) -> Path:
     canonical = root / CANONICAL_REL
     canonical.mkdir(parents=True)
-    (canonical / "SKILL.md").write_text(
-        "---\nname: veyra-proof\n---\n# Skill\n", encoding="utf-8"
-    )
+    (canonical / "SKILL.md").write_text("---\nname: veyra-proof\n---\n# Skill\n", encoding="utf-8")
     (canonical / "reference.md").write_text("# Reference\n", encoding="utf-8")
     return canonical
 
@@ -236,9 +230,7 @@ def _sandbox(tmp_path: Path) -> tuple[Path, Path, list[str]]:
 
 def test_sync_targets_have_unique_paths(sync, tmp_path) -> None:
     root, home, _ = _sandbox(tmp_path)
-    targets = sync.select_targets(
-        root=root, home=home, include_project=True, include_absent=True
-    )
+    targets = sync.select_targets(root=root, home=home, include_project=True, include_absent=True)
     resolved = [t.resolve(root, home).resolve() for t in targets]
     assert len(resolved) == len(set(resolved)), "two targets resolve to the same path"
 
@@ -246,9 +238,7 @@ def test_sync_targets_have_unique_paths(sync, tmp_path) -> None:
 def test_sync_never_targets_the_canonical_copy(sync, tmp_path) -> None:
     root, home, _ = _sandbox(tmp_path)
     _seed_skill(root)
-    targets = sync.select_targets(
-        root=root, home=home, include_project=True, include_absent=True
-    )
+    targets = sync.select_targets(root=root, home=home, include_project=True, include_absent=True)
     canonical = (root / CANONICAL_REL).resolve()
     resolved = {t.resolve(root, home).resolve() for t in targets}
     assert canonical not in resolved
@@ -263,9 +253,7 @@ def test_sync_skips_absent_harnesses_unless_forced(sync, tmp_path) -> None:
     )
     assert {t.label for t in detected} == {"cursor", "claude"}
 
-    forced = sync.select_targets(
-        root=root, home=home, include_project=False, include_absent=True
-    )
+    forced = sync.select_targets(root=root, home=home, include_project=False, include_absent=True)
     assert len(forced) > len(detected)
 
 
@@ -433,9 +421,7 @@ def test_a_copy_installed_with_copy_mode_is_accepted_by_the_default_check(
 
 
 @needs_links
-def test_a_matching_copy_without_a_marker_is_converted_to_a_link(
-    sync, tmp_path
-) -> None:
+def test_a_matching_copy_without_a_marker_is_converted_to_a_link(sync, tmp_path) -> None:
     """A copy nobody declared is a duplicate, whatever it was meant to be."""
     root, home, argv = _sandbox(tmp_path)
     canonical = _seed_skill(root)
@@ -451,9 +437,7 @@ def test_a_matching_copy_without_a_marker_is_converted_to_a_link(
     assert target.is_symlink()
 
 
-def test_an_unmanaged_directory_holding_foreign_files_is_left_alone(
-    sync, tmp_path, capsys
-) -> None:
+def test_an_unmanaged_directory_holding_foreign_files_is_left_alone(sync, tmp_path, capsys) -> None:
     """The guard that keeps the link mode from deleting somebody's work.
 
     A directory at the target holding a file this skill does not ship is not a
@@ -514,9 +498,7 @@ def test_a_link_pointing_somewhere_else_is_relinked(sync, tmp_path, capsys) -> N
 
 
 @needs_links
-def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(
-    sync, tmp_path, capsys
-) -> None:
+def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(sync, tmp_path, capsys) -> None:
     """The honest cost of a link: it is only as durable as the checkout it names.
 
     Moving or deleting the checkout leaves every harness target dangling. That is
@@ -542,9 +524,7 @@ def test_a_link_into_a_moved_checkout_is_repaired_and_says_why(
 
 
 @needs_links
-def test_the_windows_spelling_of_a_link_target_is_recognised(
-    sync, tmp_path, monkeypatch
-) -> None:
+def test_the_windows_spelling_of_a_link_target_is_recognised(sync, tmp_path, monkeypatch) -> None:
     """Windows records an absolute link target with the extended-length prefix.
 
     A link made to ``C:\\repo\\...`` reads back from ``os.readlink`` as
@@ -697,9 +677,7 @@ def test_copy_mode_stamps_a_healthy_copy_that_lost_its_marker(sync, tmp_path) ->
 
 
 @needs_links
-def test_a_copy_stamped_by_the_older_script_is_converted_not_accepted(
-    sync, tmp_path
-) -> None:
+def test_a_copy_stamped_by_the_older_script_is_converted_not_accepted(sync, tmp_path) -> None:
     """The migration this change needs, and the reason the stamp got a second line.
 
     Every machine already carrying a stamped copy has a directory that proves it is
@@ -940,11 +918,7 @@ def test_published_installer_agrees_with_the_readme() -> None:
     readme = (PUBLISH_DIR / "README.md").read_text(encoding="utf-8").lower()
     names = sorted(set(re.findall(r'Harness\(\s*"([a-z]+)"', installer)))
     assert names, "no harness table found in install.py"
-    missing = [
-        name
-        for name in names
-        if not re.search(rf"\|\s*`?{re.escape(name)}`?\s*\|", readme)
-    ]
+    missing = [name for name in names if not re.search(rf"\|\s*`?{re.escape(name)}`?\s*\|", readme)]
     assert not missing, f"harnesses missing from the Veyra README table: {missing}"
 
 
@@ -964,9 +938,7 @@ def test_both_installers_declare_the_same_harnesses(sync) -> None:
     spec.loader.exec_module(module)
 
     public = {h.name for h in module.HARNESSES}
-    internal = {t.label for t in sync.GLOBAL_TARGETS} | {
-        t.label for t in sync.PROJECT_TARGETS
-    }
+    internal = {t.label for t in sync.GLOBAL_TARGETS} | {t.label for t in sync.PROJECT_TARGETS}
     assert internal == public, (
         f"harness tables drifted: only in sync_skill.py {sorted(internal - public)}, "
         f"only in Veyra/install.py {sorted(public - internal)}"

@@ -80,8 +80,7 @@ class Tool(ABC):
     _unknown_includes: list[str] = []
 
     @abstractmethod
-    def detect(self, context: AuditContext) -> DetectionResult:
-        ...
+    def detect(self, context: AuditContext) -> DetectionResult: ...
 
     def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
@@ -106,8 +105,7 @@ class Tool(ABC):
         )
 
     @abstractmethod
-    def run(self, context: AuditContext) -> ToolResult:
-        ...
+    def run(self, context: AuditContext) -> ToolResult: ...
 
     def platform_supported(self, platform: PlatformInfo) -> bool:
         if self.supported_platforms and platform.os not in self.supported_platforms:

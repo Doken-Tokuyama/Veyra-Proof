@@ -370,7 +370,7 @@ pyinstaller --onefile --name veyra src/veyra_proof/__main__.py
 | Job | What it proves |
 |---|---|
 | `test` | The full test suite on ubuntu, macos and windows across Python 3.10 and 3.13, plus `veyra --version` from the installed console script |
-| `quality` | `ruff` over `src`, `tests` and `scripts`, and `mypy` over `src/veyra_proof`, `tests` and `scripts` |
+| `quality` | `ruff check`, `ruff format --check` and `mypy` over `src`, `tests` and `scripts` |
 | `audit` | A real audit of the demo crate on a real Rust toolchain, on Linux and macOS, followed by a check that the evidence on disk backs the verdict |
 | `account-skill` | Whether the Freebuff Desktop account copy of the skill still matches the canonical one — advisory, see below |
 
@@ -441,14 +441,15 @@ A stale Cloud account copy does not block a release: that cache is machine-local
 
 ## Quality gate
 
-`ruff` and `mypy` run in a dedicated CI job, so a lint or type regression fails the same commit that introduced it:
+`ruff` and `mypy` run in a dedicated CI job, so a lint, format or type regression fails the same commit that introduced it:
 
 ```bash
 .venv/bin/python -m ruff check src tests scripts
+.venv/bin/python -m ruff format --check src tests scripts
 .venv/bin/python -m mypy
 ```
 
-The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`, including the bodies of functions without annotations (`check_untyped_defs`). The same commands run before each commit through the versioned hook:
+The lint selection covers the base, import and bugbear rules. The type check covers `src/veyra_proof`, `tests` and `scripts` with `ignore_missing_imports`, including the bodies of functions without annotations (`check_untyped_defs`). Production and script signatures must be annotated (`disallow_untyped_defs`); test helpers are the one exception until their fixtures are annotated, and their bodies are still checked. The same commands run before each commit through the versioned hook:
 
 ```bash
 git config core.hooksPath .githooks

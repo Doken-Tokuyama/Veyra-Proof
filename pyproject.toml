@@ -84,5 +84,23 @@ files = ["src/veyra_proof", "tests", "scripts"]
 ignore_missing_imports = true
 no_implicit_optional = true
 check_untyped_defs = true
+disallow_untyped_defs = false
 warn_redundant_casts = true
 show_error_codes = true
+
+# Production code and scripts require annotated signatures. Test helpers stay
+# dynamically typed until their fixtures are annotated; their bodies are still
+# checked by check_untyped_defs.
+[[tool.mypy.overrides]]
+module = [
+  "check_account_skill",
+  "check_platforms",
+  "check_published",
+  "check_wheel_version",
+  "ci_assert_evidence",
+  "pre_release",
+  "release_notes",
+  "sync_skill",
+  "veyra_proof.*",
+]
+disallow_untyped_defs = true

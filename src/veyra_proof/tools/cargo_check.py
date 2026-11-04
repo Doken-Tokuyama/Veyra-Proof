@@ -1,9 +1,18 @@
 """cargo check tool."""
+
 from __future__ import annotations
 
 import shutil
 
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity, ToolResult
+from veyra_proof.models import (
+    CommandResult,
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
@@ -35,13 +44,13 @@ class CargoCheckTool(Tool):
         ver = context.platform.cargo_version
         return DetectionResult(self.id, "INSTALLED", True, version=ver, path=path)
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return [self.cargo_command(context, list(ALL_TARGETS))]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         cmd = self.cargo_command(context, list(ALL_TARGETS))
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
@@ -49,9 +58,7 @@ class CargoCheckTool(Tool):
         if result.exit_code not in (0, None) and not result.timed_out:
             blocked = nightly_only_targets(result.stdout + "\n" + result.stderr)
             if blocked:
-                return self._without_nightly_targets(
-                    context, started, cmd, result, blocked
-                )
+                return self._without_nightly_targets(context, started, cmd, result, blocked)
 
         out, err = self.write_logs(context, result.stdout, result.stderr)
         status, severity, summary = classify_from_command(
@@ -81,7 +88,7 @@ class CargoCheckTool(Tool):
         context: AuditContext,
         started: str,
         cmd: list[str],
-        failed,
+        failed: CommandResult,
         blocked: list[str],
     ) -> ToolResult:
         """Retry without the targets stable cannot build, and report what was missed.
@@ -120,8 +127,7 @@ class CargoCheckTool(Tool):
         else:
             status, severity = "ERROR", "error"
             summary = (
-                f"cargo check fails on stable targets too (exit {fallback.exit_code}); "
-                "see logs"
+                f"cargo check fails on stable targets too (exit {fallback.exit_code}); see logs"
             )
 
         findings = [
@@ -156,7 +162,10 @@ class CargoCheckTool(Tool):
             stdout_path=out,
             stderr_path=err,
             findings=findings,
-            environment={"verified_targets": "lib,bins,tests", "unverified_files": ",".join(blocked)},
+            environment={
+                "verified_targets": "lib,bins,tests",
+                "unverified_files": ",".join(blocked),
+            },
         )
         self.save_result_json(context, tr)
         return tr

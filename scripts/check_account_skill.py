@@ -73,11 +73,7 @@ def canonical_files(root: Path) -> dict[str, bytes]:
     directory = skills_dir(root)
     if not directory.is_dir():
         raise UsageError(f"canonical skill not found: {directory}")
-    files = {
-        path.name: path.read_bytes()
-        for path in sorted(directory.iterdir())
-        if path.is_file()
-    }
+    files = {path.name: path.read_bytes() for path in sorted(directory.iterdir()) if path.is_file()}
     if not files:
         raise UsageError(f"canonical skill is empty: {directory}")
     return files
@@ -133,9 +129,7 @@ def compare(actual: dict[str, str], expected: dict[str, bytes]) -> list[str]:
         if got is None:
             differences.append(f"{name} (absent)")
         elif got.encode("utf-8") != want:
-            differences.append(
-                f"{name} (differs, {len(got.encode('utf-8'))} B vs {len(want)} B)"
-            )
+            differences.append(f"{name} (differs, {len(got.encode('utf-8'))} B vs {len(want)} B)")
     for name in sorted(set(actual) - set(expected)):
         differences.append(f"{name} (not in the canonical skill)")
     return differences
@@ -216,10 +210,7 @@ def report(root: Path, store: Path) -> int:
         if state != "current":
             stale += 1
             detail = ", ".join(differences)
-            print(
-                f"  {state:<8} {relative}  "
-                f"{describe_versions(skill, expected)}  [{detail}]"
-            )
+            print(f"  {state:<8} {relative}  {describe_versions(skill, expected)}  [{detail}]")
         else:
             print(f"  current  {relative}  version {canonical_version}")
 
@@ -238,10 +229,7 @@ def report(root: Path, store: Path) -> int:
         if state != "current":
             stale += 1
             detail = ", ".join(differences)
-            print(
-                f"  {state:<8} {relative}  "
-                f"{describe_versions(files, expected)}  [{detail}]"
-            )
+            print(f"  {state:<8} {relative}  {describe_versions(files, expected)}  [{detail}]")
         else:
             print(f"  current  {relative}  version {canonical_version}")
 
@@ -280,10 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         "--store",
         type=Path,
         default=None,
-        help=(
-            "Account-skills store to inspect "
-            f"(default: ~/{DEFAULT_STORE_REL})."
-        ),
+        help=(f"Account-skills store to inspect (default: ~/{DEFAULT_STORE_REL})."),
     )
     args = parser.parse_args(argv)
 

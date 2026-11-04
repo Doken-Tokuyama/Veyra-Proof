@@ -223,9 +223,7 @@ class TestTheNumbersComeFromTheRecord:
         assert path == root / ".freebuff" / "release-notes-v0.4.9.md"
         assert path.is_file(), "the default path is the one the gate hands to `gh`"
 
-    def test_the_index_row_names_the_commit_the_world_installs(
-        self, notes, gate, tmp_path
-    ):
+    def test_the_index_row_names_the_commit_the_world_installs(self, notes, gate, tmp_path):
         """Provenance is stated when the step measured it — in the form the record holds.
 
         The short commit id is a recorded fact, not a truncation made here: a number the
@@ -473,9 +471,7 @@ class TestTheStateRowsAreTheFootersRows:
         _, first, _ = notes.generate(root, "t")
 
         record["state"] = {
-            "release": [
-                "the release already exists on GitHub — gh release view v0.4.9 found it"
-            ],
+            "release": ["the release already exists on GitHub — gh release view v0.4.9 found it"],
             "pypi": record["state"]["pypi"],
         }
         _write(root, record)
@@ -486,9 +482,7 @@ class TestTheStateRowsAreTheFootersRows:
         assert "already exists on GitHub" in second
         assert "no release for this tag on GitHub yet" not in second
 
-    def test_state_rows_the_gate_never_recorded_are_named_not_guessed(
-        self, notes, gate, tmp_path
-    ):
+    def test_state_rows_the_gate_never_recorded_are_named_not_guessed(self, notes, gate, tmp_path):
         """A record from a run that never asked has no row — and names the gap."""
         root = _tree(tmp_path)
         _write(root, _record(gate, root, state=None, **_full_facts()))
@@ -588,8 +582,7 @@ class TestTheProseIsTheHumanPart:
         """
         root = _tree(tmp_path)
         (root / "changes.md").write_text(
-            f"## What changed in v0.4.9\n\n{BULLET}\n"
-            "## What changed in v0.4.8\n\n- old news\n",
+            f"## What changed in v0.4.9\n\n{BULLET}\n## What changed in v0.4.8\n\n- old news\n",
             encoding="utf-8",
         )
         _write(root, _record(gate, root, **_full_facts()))
@@ -600,9 +593,7 @@ class TestTheProseIsTheHumanPart:
         assert BULLET.strip() in body
         assert "old news" not in body
 
-    def test_the_version_section_wins_over_an_empty_next_cycle_section(
-        self, notes, gate, tmp_path
-    ):
+    def test_the_version_section_wins_over_an_empty_next_cycle_section(self, notes, gate, tmp_path):
         """The fresh `Unreleased` that follows a release cannot blank the notes out."""
         root = _tree(tmp_path)
         (root / "changes.md").write_text(
@@ -625,11 +616,11 @@ class TestTheProseIsTheHumanPart:
 
         assert notes.unreleased(root, "0.4.9") == [BULLET.rstrip() + "\n"]
 
-    def test_a_changelog_with_neither_section_refuses_with_both_names(
-        self, notes, gate, tmp_path
-    ):
+    def test_a_changelog_with_neither_section_refuses_with_both_names(self, notes, gate, tmp_path):
         root = _tree(tmp_path)
-        (root / "changes.md").write_text("## What changed in v0.4.9\n\n## Something else\n", encoding="utf-8")
+        (root / "changes.md").write_text(
+            "## What changed in v0.4.9\n\n## Something else\n", encoding="utf-8"
+        )
         _write(root, _record(gate, root, **_full_facts()))
 
         code, message, _ = notes.generate(root, "t")

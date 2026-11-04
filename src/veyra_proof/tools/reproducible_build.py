@@ -6,7 +6,14 @@ import hashlib
 import platform
 from pathlib import Path
 
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 SKIP_SUFFIXES = {".d", ".rmeta", ".timestamp", ".o", ".pdb"}
@@ -67,10 +74,10 @@ class ReproducibleBuildTool(Tool):
     def detect(self, context: AuditContext) -> DetectionResult:
         return DetectionResult(self.id, "INSTALLED", True, version="builtin")
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return None
 
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         evidence = context.evidence_dir / "tools" / self.id
         return [
             self.cargo_command(
@@ -83,7 +90,7 @@ class ReproducibleBuildTool(Tool):
             ),
         ]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         evidence = context.evidence_dir / "tools" / self.id
         evidence.mkdir(parents=True, exist_ok=True)
@@ -147,7 +154,8 @@ class ReproducibleBuildTool(Tool):
             )
         elif a_hashes != b_hashes:
             differing = sorted(
-                key for key in set(a_hashes) | set(b_hashes)
+                key
+                for key in set(a_hashes) | set(b_hashes)
                 if a_hashes.get(key) != b_hashes.get(key)
             )
             # The digests below are always pinned as evidence, whatever the
@@ -181,11 +189,7 @@ class ReproducibleBuildTool(Tool):
                 "warning",
                 f"Final artifact hashes differ for {len(differing)} artifact(s); "
                 "reproducibility not established"
-                + (
-                    ""
-                    if mismatch_sev == "info"
-                    else " (policy.require_reproducible_build=true)"
-                ),
+                + ("" if mismatch_sev == "info" else " (policy.require_reproducible_build=true)"),
             )
         else:
             status, severity, summary = (

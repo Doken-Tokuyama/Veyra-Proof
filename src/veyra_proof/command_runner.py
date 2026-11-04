@@ -143,9 +143,7 @@ class CommandRunner:
 
     def preview(self, command: Sequence[str], *, cwd: str | Path | None = None) -> list[str]:
         """The argv this runner would execute, without running anything."""
-        return apply_lock_policy(
-            command, cwd=cwd, allow_update=self.allow_lockfile_update
-        )
+        return apply_lock_policy(command, cwd=cwd, allow_update=self.allow_lockfile_update)
 
     def run(
         self,

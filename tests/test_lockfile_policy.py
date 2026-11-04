@@ -36,17 +36,13 @@ class TestApplyLockPolicy:
 
     def test_authorized_updates_leave_the_command_alone(self, tmp_path):
         _lock(tmp_path)
-        argv = apply_lock_policy(
-            ["cargo", "check", "--workspace"], cwd=tmp_path, allow_update=True
-        )
+        argv = apply_lock_policy(["cargo", "check", "--workspace"], cwd=tmp_path, allow_update=True)
         assert argv == ["cargo", "check", "--workspace"]
 
     def test_a_flag_that_already_decides_is_not_duplicated(self, tmp_path):
         _lock(tmp_path)
         for flag in ("--locked", "--frozen", "--offline"):
-            argv = apply_lock_policy(
-                ["cargo", "build", flag, "--release"], cwd=tmp_path
-            )
+            argv = apply_lock_policy(["cargo", "build", flag, "--release"], cwd=tmp_path)
             assert argv == ["cargo", "build", flag, "--release"]
 
     def test_version_probes_are_not_locked(self, tmp_path):
@@ -64,18 +60,14 @@ class TestApplyLockPolicy:
     def test_version_flags_after_the_harness_separator_still_lock(self, tmp_path):
         # `cargo test -- --version` filters tests by that name; it still builds.
         _lock(tmp_path)
-        argv = apply_lock_policy(
-            ["cargo", "test", "--workspace", "--", "--version"], cwd=tmp_path
-        )
+        argv = apply_lock_policy(["cargo", "test", "--workspace", "--", "--version"], cwd=tmp_path)
         assert argv == ["cargo", "test", "--locked", "--workspace", "--", "--version"]
 
     def test_plugin_shape_keeps_its_own_subcommand(self, tmp_path):
         # `cargo nextest run --workspace` would break if the flag were inserted
         # between the plugin and its subcommand.
         _lock(tmp_path)
-        argv = apply_lock_policy(
-            ["cargo", "nextest", "run", "--workspace"], cwd=tmp_path
-        )
+        argv = apply_lock_policy(["cargo", "nextest", "run", "--workspace"], cwd=tmp_path)
         assert argv == ["cargo", "nextest", "run", "--locked", "--workspace"]
 
     def test_flag_lands_before_trailing_test_harness_args(self, tmp_path):
@@ -112,16 +104,12 @@ class TestApplyLockPolicy:
 
     def test_toolchain_override_is_skipped_when_finding_the_subcommand(self, tmp_path):
         _lock(tmp_path)
-        argv = apply_lock_policy(
-            ["cargo", "+nightly", "build", "--release"], cwd=tmp_path
-        )
+        argv = apply_lock_policy(["cargo", "+nightly", "build", "--release"], cwd=tmp_path)
         assert argv == ["cargo", "+nightly", "build", "--locked", "--release"]
 
     def test_windows_executable_name_is_recognised(self, tmp_path):
         _lock(tmp_path)
-        argv = apply_lock_policy(
-            [str(Path("C:/cargo/bin/cargo.EXE")), "check"], cwd=tmp_path
-        )
+        argv = apply_lock_policy([str(Path("C:/cargo/bin/cargo.EXE")), "check"], cwd=tmp_path)
         assert argv == [str(Path("C:/cargo/bin/cargo.EXE")), "check", "--locked"]
 
 
@@ -146,9 +134,7 @@ class TestRunnerAppliesPolicy:
 
     def test_dry_run_reports_the_effective_argv(self, tmp_path):
         _lock(tmp_path)
-        result = CommandRunner(dry_run=True).run(
-            ["cargo", "test", "--workspace"], cwd=tmp_path
-        )
+        result = CommandRunner(dry_run=True).run(["cargo", "test", "--workspace"], cwd=tmp_path)
         assert result.command == ["cargo", "test", "--locked", "--workspace"]
         assert result.error == "dry-run"
 
@@ -171,9 +157,7 @@ class TestUndecodableOutputIsStillCaptured:
             "sys.stdout.buffer.write(b'\\x8f'); "
             "sys.stdout.buffer.write(b'after'); sys.exit(7)"
         )
-        result = CommandRunner().run(
-            [sys.executable, "-c", script], cwd=tmp_path, timeout=60
-        )
+        result = CommandRunner().run([sys.executable, "-c", script], cwd=tmp_path, timeout=60)
         assert result.exit_code == 7
         assert result.stdout is not None
         assert result.stdout.startswith("before")

@@ -56,6 +56,9 @@ jobs:
       - name: Lint
         run: python -m ruff check src tests scripts
 
+      - name: Format
+        run: python -m ruff format --check src tests scripts
+
       - name: Typecheck
         run: python -m mypy
 

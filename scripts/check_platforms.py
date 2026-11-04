@@ -111,9 +111,7 @@ def gh(argv: list[str], root: Path) -> tuple[int, str, str]:
 
 def repo_slug(root: Path) -> str | None:
     """``owner/name`` for this checkout, from gh or from the git remote."""
-    status, out, _ = gh(
-        ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], root
-    )
+    status, out, _ = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], root)
     if status == 0 and out.strip():
         return out.strip()
 
@@ -148,9 +146,7 @@ def resolve_commit(root: Path, ref: str) -> str | None:
 
 def runs_for(slug: str, sha: str, root: Path) -> tuple[int, list[dict], str]:
     """Every workflow run GitHub has for this commit."""
-    status, out, err = gh(
-        ["api", f"repos/{slug}/actions/runs?head_sha={sha}&per_page=100"], root
-    )
+    status, out, err = gh(["api", f"repos/{slug}/actions/runs?head_sha={sha}&per_page=100"], root)
     if status != 0:
         return status, [], err
     try:
@@ -217,9 +213,7 @@ def classify(
         return problems, confirmed
 
     if run.get("conclusion") != OK_CONCLUSION:
-        problems.append(
-            f"{label} for {sha[:12]} concluded {run.get('conclusion')!r} ({url})"
-        )
+        problems.append(f"{label} for {sha[:12]} concluded {run.get('conclusion')!r} ({url})")
 
     if not jobs:
         problems.append(f"{label} reports no jobs, so nothing was actually run")
@@ -244,8 +238,7 @@ def classify(
         on_platform = [
             job
             for job in successful
-            if platform in job.get("name", "")
-            and AUDIT_MARKER not in job.get("name", "")
+            if platform in job.get("name", "") and AUDIT_MARKER not in job.get("name", "")
         ]
         if not on_platform:
             problems.append(
@@ -294,9 +287,7 @@ def write_report(path: Path, facts: dict, ok: bool) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         os.replace(temporary, path)
     except OSError as error:
         print(f"note: could not write the report to {path}: {error}", file=sys.stderr)
@@ -346,9 +337,7 @@ def main(argv: list[str] | None = None) -> int:
 
     root = args.root.expanduser().resolve()
     required = tuple(item.strip() for item in args.require.split(",") if item.strip())
-    required_audits = tuple(
-        item.strip() for item in args.require_audit.split(",") if item.strip()
-    )
+    required_audits = tuple(item.strip() for item in args.require_audit.split(",") if item.strip())
 
     sha = resolve_commit(root, args.commit or "HEAD")
     if not sha:
@@ -379,8 +368,13 @@ def main(argv: list[str] | None = None) -> int:
     status, runs, err = runs_for(slug, sha, root)
     if status != 0:
         sys.stdout.flush()
-        print(f"  NOT RUN  gh could not read the runs for {sha[:12]}: {err.strip()}", file=sys.stderr)
-        print("           this is not a pass: no platform has been proven for this commit", file=sys.stderr)
+        print(
+            f"  NOT RUN  gh could not read the runs for {sha[:12]}: {err.strip()}", file=sys.stderr
+        )
+        print(
+            "           this is not a pass: no platform has been proven for this commit",
+            file=sys.stderr,
+        )
         return 2
 
     run = pick_run(runs, args.workflow)
@@ -389,12 +383,13 @@ def main(argv: list[str] | None = None) -> int:
         status, jobs, err = jobs_for(slug, run["id"], root)
         if status != 0:
             sys.stdout.flush()
-            print(f"  NOT RUN  gh could not read the jobs of run {run.get('id')}: {err.strip()}", file=sys.stderr)
+            print(
+                f"  NOT RUN  gh could not read the jobs of run {run.get('id')}: {err.strip()}",
+                file=sys.stderr,
+            )
             return 2
 
-    problems, confirmed = classify(
-        sha, args.workflow, run, jobs, required, required_audits
-    )
+    problems, confirmed = classify(sha, args.workflow, run, jobs, required, required_audits)
 
     for line in confirmed:
         print(f"  confirmed  {line}")
@@ -424,8 +419,7 @@ def main(argv: list[str] | None = None) -> int:
                 platform: sorted(
                     job.get("name", "")
                     for job in successful
-                    if AUDIT_MARKER in job.get("name", "")
-                    and platform in job.get("name", "")
+                    if AUDIT_MARKER in job.get("name", "") and platform in job.get("name", "")
                 )
                 for platform in required_audits
             },

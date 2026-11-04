@@ -1,4 +1,5 @@
 """cargo-geiger."""
+
 from __future__ import annotations
 
 import re
@@ -6,7 +7,14 @@ import shlex
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -39,11 +47,10 @@ class CargoGeigerTool(Tool):
             context, ["cargo", "geiger", "--version"], absent_message="cargo-geiger not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-geiger")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         return self._commands(context)
 
     def _commands(self, context: AuditContext) -> list[list[str]]:
@@ -61,7 +68,7 @@ class CargoGeigerTool(Tool):
         ]
         return cmds or [["cargo", "geiger"]]
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
@@ -94,7 +101,9 @@ class CargoGeigerTool(Tool):
         ]
         coverage_warning_runs = len(failures) - len(hard_failures)
         findings: list[Finding] = []
-        unsafe_used = bool(re.search(r"\bunsafe\b", text, re.I)) and ("Functions" in text or "Expressions" in text or "!" in text)
+        unsafe_used = bool(re.search(r"\bunsafe\b", text, re.I)) and (
+            "Functions" in text or "Expressions" in text or "!" in text
+        )
         if timed_out:
             status, severity, summary = "INCONCLUSIVE", "warning", "cargo-geiger timed out"
         elif any(c is None for c in exit_codes):
@@ -102,14 +111,18 @@ class CargoGeigerTool(Tool):
         elif hard_failures:
             status, severity, summary = "ERROR", "error", f"cargo-geiger exit {hard_failures[0]}"
         elif context.config.policy.deny_unsafe and unsafe_used:
-            findings.append(Finding(
-                rule="unsafe-usage",
-                severity="error",
-                confidence="medium",
-                file=None, line=None, excerpt=None,
-                explanation="cargo-geiger reported unsafe usage and policy.deny_unsafe=true.",
-                recommendation="Review unsafe blocks or relax deny_unsafe only with documented justification.",
-            ))
+            findings.append(
+                Finding(
+                    rule="unsafe-usage",
+                    severity="error",
+                    confidence="medium",
+                    file=None,
+                    line=None,
+                    excerpt=None,
+                    explanation="cargo-geiger reported unsafe usage and policy.deny_unsafe=true.",
+                    recommendation="Review unsafe blocks or relax deny_unsafe only with documented justification.",
+                )
+            )
             status, severity, summary = "FINDINGS", "error", "Unsafe usage under deny_unsafe policy"
         elif coverage_warning_runs:
             status, severity, summary = (
@@ -120,11 +133,22 @@ class CargoGeigerTool(Tool):
                 "could not be parsed, so unsafe counts are a lower bound — this is not a pass",
             )
         else:
-            status, severity, summary = "OK", "info", "cargo-geiger completed; see JSON for unsafe summary"
+            status, severity, summary = (
+                "OK",
+                "info",
+                "cargo-geiger completed; see JSON for unsafe summary",
+            )
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=[cmd_str], exit_code=agg_exit, duration_seconds=duration,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=[cmd_str],
+            exit_code=agg_exit,
+            duration_seconds=duration,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
             environment={
                 "geiger_stdout_present": "yes",
                 "geiger_runs": str(len(commands)),

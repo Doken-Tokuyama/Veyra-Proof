@@ -79,8 +79,12 @@ def resolve_workspace(path: str | Path, runner: CommandRunner | None = None) -> 
         workspace_root=str(workspace_root),
         packages=packages,
         workspace_members=list(meta.get("workspace_members", [])),
-        target_directory=str(Path(meta.get("target_directory", workspace_root / "target")).resolve()),
-        default_members=list(meta.get("workspace_default_members", meta.get("workspace_members", []))),
+        target_directory=str(
+            Path(meta.get("target_directory", workspace_root / "target")).resolve()
+        ),
+        default_members=list(
+            meta.get("workspace_default_members", meta.get("workspace_members", []))
+        ),
         root_package=root_package,
         has_lockfile=lockfile.is_file(),
         lockfile_path=str(lockfile) if lockfile.is_file() else None,

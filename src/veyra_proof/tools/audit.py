@@ -1,10 +1,19 @@
 """cargo-audit."""
+
 from __future__ import annotations
 
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
-from veyra_proof.models import DetectionResult, Finding, ResultStatus, Severity
+from veyra_proof.models import (
+    DetectionResult,
+    Finding,
+    InstallPlan,
+    ResultStatus,
+    Severity,
+    ToolResult,
+    WorkspaceInfo,
+)
 from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
 
 
@@ -27,11 +36,10 @@ class CargoAuditTool(Tool):
             context, ["cargo", "audit", "--version"], absent_message="cargo-audit not installed"
         )
 
-    def install_plan(self, context: AuditContext):
+    def install_plan(self, context: AuditContext) -> InstallPlan | None:
         return cargo_install_plan(self.id, self.display_name, "cargo-audit")
 
-
-    def planned_commands(self, context: AuditContext):
+    def planned_commands(self, context: AuditContext) -> list[list[str]]:
         if not self._lockfile_present(context):
             return []
         return [["cargo", "audit"]]
@@ -48,27 +56,35 @@ class CargoAuditTool(Tool):
         return (context.root / "Cargo.lock").is_file()
 
     @staticmethod
-    def _declared_dependencies(workspace) -> bool:
+    def _declared_dependencies(workspace: WorkspaceInfo) -> bool:
         for package in workspace.packages:
             if package.get("dependencies") or package.get("dev-dependencies"):
                 return True
         return False
 
-    def run(self, context: AuditContext):
+    def run(self, context: AuditContext) -> ToolResult:
         started = utc_now_iso()
         status: ResultStatus
         severity: Severity
         if not self._lockfile_present(context):
             if context.config.policy.require_lockfile:
                 return self.make_result(
-                    status="FINDINGS", severity="error", started_at=started,
+                    status="FINDINGS",
+                    severity="error",
+                    started_at=started,
                     summary="Cargo.lock missing and policy.require_lockfile=true",
-                    findings=[Finding(
-                        rule="missing-lockfile", severity="error", confidence="high",
-                        file="Cargo.lock", line=None, excerpt=None,
-                        explanation="Policy requires Cargo.lock but none was found.",
-                        recommendation="Commit a Cargo.lock for reproducible dependency audits.",
-                    )],
+                    findings=[
+                        Finding(
+                            rule="missing-lockfile",
+                            severity="error",
+                            confidence="high",
+                            file="Cargo.lock",
+                            line=None,
+                            excerpt=None,
+                            explanation="Policy requires Cargo.lock but none was found.",
+                            recommendation="Commit a Cargo.lock for reproducible dependency audits.",
+                        )
+                    ],
                 )
             if self._declared_dependencies(context.workspace):
                 # Skipping here would read as "no advisories". It is not: nothing
@@ -79,19 +95,21 @@ class CargoAuditTool(Tool):
                     "vulnerable dependencies cannot be ruled out (this is not a pass)",
                     skip_kind="intentional",
                 )
-                tr.findings = [Finding(
-                    rule="unlocked-dependencies",
-                    severity="info",
-                    confidence="high",
-                    file="Cargo.lock",
-                    line=None,
-                    excerpt=None,
-                    explanation=(
-                        "The manifest declares dependencies but no Cargo.lock exists, so "
-                        "cargo-audit had nothing to check. Dependency safety is unknown."
-                    ),
-                    recommendation="Run `cargo generate-lockfile` (or pass --update-lockfile) and audit again.",
-                )]
+                tr.findings = [
+                    Finding(
+                        rule="unlocked-dependencies",
+                        severity="info",
+                        confidence="high",
+                        file="Cargo.lock",
+                        line=None,
+                        excerpt=None,
+                        explanation=(
+                            "The manifest declares dependencies but no Cargo.lock exists, so "
+                            "cargo-audit had nothing to check. Dependency safety is unknown."
+                        ),
+                        recommendation="Run `cargo generate-lockfile` (or pass --update-lockfile) and audit again.",
+                    )
+                ]
                 self.save_result_json(context, tr)
                 return tr
             return self.skipped(context, "no dependencies declared; cargo-audit skipped")
@@ -103,34 +121,54 @@ class CargoAuditTool(Tool):
         if result.timed_out:
             status, severity, summary = "INCONCLUSIVE", "warning", "cargo-audit timed out"
         elif result.exit_code is None:
-            status, severity, summary = "ERROR", "error", result.error or "cargo-audit failed to run"
+            status, severity, summary = (
+                "ERROR",
+                "error",
+                result.error or "cargo-audit failed to run",
+            )
         elif result.exit_code == 0:
             status, severity, summary = "OK", "info", "No advisories reported"
         else:
-            findings.append(Finding(
-                rule="rustsec-advisory",
-                severity="error",
-                confidence="high",
-                file="Cargo.lock",
-                line=None,
-                excerpt=None,
-                explanation="cargo-audit reported one or more advisories; see logs.",
-                recommendation="Review advisories and upgrade or patch affected crates.",
-            ))
+            findings.append(
+                Finding(
+                    rule="rustsec-advisory",
+                    severity="error",
+                    confidence="high",
+                    file="Cargo.lock",
+                    line=None,
+                    excerpt=None,
+                    explanation="cargo-audit reported one or more advisories; see logs.",
+                    recommendation="Review advisories and upgrade or patch affected crates.",
+                )
+            )
             # extract RUSTSEC ids if present
             import re
+
             for m in re.finditer(r"RUSTSEC-\d{4}-\d+", text):
-                findings.append(Finding(
-                    rule=m.group(0), severity="error", confidence="high",
-                    file="Cargo.lock", line=None, excerpt=m.group(0),
-                    explanation=f"Advisory {m.group(0)} reported by cargo-audit.",
-                    recommendation="Inspect the advisory details in the audit log.",
-                ))
+                findings.append(
+                    Finding(
+                        rule=m.group(0),
+                        severity="error",
+                        confidence="high",
+                        file="Cargo.lock",
+                        line=None,
+                        excerpt=m.group(0),
+                        explanation=f"Advisory {m.group(0)} reported by cargo-audit.",
+                        recommendation="Inspect the advisory details in the audit log.",
+                    )
+                )
             status, severity, summary = "FINDINGS", "error", "Advisories detected"
         tr = self.make_result(
-            status=status, severity=severity, summary=summary, started_at=started,
-            command=cmd, exit_code=result.exit_code, duration_seconds=result.duration_seconds,
-            stdout_path=out, stderr_path=err, findings=findings,
+            status=status,
+            severity=severity,
+            summary=summary,
+            started_at=started,
+            command=cmd,
+            exit_code=result.exit_code,
+            duration_seconds=result.duration_seconds,
+            stdout_path=out,
+            stderr_path=err,
+            findings=findings,
         )
         self.save_result_json(context, tr)
         return tr

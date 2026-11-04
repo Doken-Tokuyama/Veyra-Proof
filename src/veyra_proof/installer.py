@@ -20,7 +20,9 @@ class InstallOutcome:
     skip_reason: str | None = None
 
 
-def confirm_installs(plans: list[InstallPlan], *, yes: bool, prompt_fn: Callable[[str], str] | None = None) -> bool:
+def confirm_installs(
+    plans: list[InstallPlan], *, yes: bool, prompt_fn: Callable[[str], str] | None = None
+) -> bool:
     if not plans:
         return True
     if yes:
@@ -122,7 +124,9 @@ def execute_install_plan(
     return InstallOutcome(tool_id=plan.tool_id, success=True, steps_run=steps_run)
 
 
-def rustup_component_plan(tool_id: str, display: str, component: str, toolchain: str | None = None) -> InstallPlan:
+def rustup_component_plan(
+    tool_id: str, display: str, component: str, toolchain: str | None = None
+) -> InstallPlan:
     cmd = ["rustup", "component", "add", component]
     if toolchain:
         cmd.extend(["--toolchain", toolchain])
