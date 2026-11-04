@@ -743,6 +743,17 @@ def _bare_origin(released: Path, tmp_path: Path) -> Path:
     subprocess.run(
         ["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True
     )
+    # Name the bare's default branch instead of inheriting `init.defaultBranch`.
+    # That setting is `main` on this developer machine and `master` on a GitHub
+    # runner, where five jobs failed: the clone below checked out nothing, the
+    # commit landed on `master`, and `git push origin main` had no ref to push.
+    # The test was reading a machine setting rather than stating what it needed.
+    subprocess.run(
+        ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
+        cwd=bare,
+        check=True,
+        capture_output=True,
+    )
     for argv in (
         ["git", "remote", "add", "origin", str(bare)],
         ["git", "push", "-q", "origin", "HEAD:main"],
