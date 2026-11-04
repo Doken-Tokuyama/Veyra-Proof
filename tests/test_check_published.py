@@ -514,6 +514,29 @@ def test_it_runs_as_a_script(dist, tmp_path) -> None:
     assert _facts(report)["facts"]["files_compared"] == 2
 
 
+def test_the_commit_tree_is_the_blobs_not_an_archive_of_rewritten_line_endings(check, dist) -> None:
+    """`git archive` is not the commit when line endings are rewritten on the way out.
+
+    GitHub's Windows runners set `core.autocrlf=true`; archive output then carries CRLF
+    while the wheel carries the committed LF, so every text member was reported as
+    "not what the released commit holds" on three Windows jobs (run 41882003503) over
+    an artifact that matched its commit byte for byte. The tree must come from the
+    objects, where nothing converts anything.
+    """
+    subprocess.run(["git", "config", "core.autocrlf", "true"], cwd=dist, check=True)
+
+    tree = check.commit_tree(dist, "HEAD")
+    blob = subprocess.run(
+        ["git", "cat-file", "blob", "HEAD:src/veyra_proof/cli.py"],
+        cwd=dist,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+    assert tree is not None
+    assert tree["src/veyra_proof/cli.py"] == check.sha256_bytes(blob)
+
+
 def test_the_published_files_are_traced_to_the_released_commit(
     check, dist, tmp_path, capsys
 ) -> None:

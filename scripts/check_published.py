@@ -22,7 +22,7 @@ release is a claim about a commit. PyPI can carry that answer in a file's attest
 (``provenance.attestation_url`` in the JSON API) — but this project's uploads have none,
 and the artifacts themselves name no commit, so the only proof left is content: every
 member the index serves has to be exactly what the released commit holds. That is what
-this step checks, by reading the commit's own tree with ``git archive``:
+this step checks, by reading the commit's own blobs with ``git cat-file``:
 
 * **every member that is not build-generated** — the source, the tests, the workflows,
   the skill — must exist in the released commit **byte for byte**;
@@ -329,30 +329,68 @@ def released_commit(root: Path, version: str, override: str | None) -> tuple[str
 def commit_tree(root: Path, commit: str) -> dict[str, str] | None:
     """The commit's files as ``path -> sha256``, or None when git cannot show them.
 
-    Read with ``git archive``, so what is compared is the commit itself rather than a
-    checkout of it: no smudge filters, no uncommitted edits, no dependency on the state
-    of the working tree this script happens to sit in.
+    Read from the commit's own blobs, not from ``git archive``. Archive output is not
+    the blob: with ``core.autocrlf=true`` — what GitHub's Windows runners set — git
+    rewrites line endings on the way out, so every text member differed from a wheel
+    built from the committed bytes. Run 41882003503 is the measurement: all three
+    Windows jobs reported both members as "not what the released commit holds" while
+    every other platform was green, over an artifact that matched its commit exactly.
+    ``cat-file`` has no layer between the object and the digest, which is the thing
+    this step claims to compare; a checkout's filters cannot reach it either.
     """
     try:
-        completed = subprocess.run(
-            ["git", "archive", "--format=tar", commit],
+        listing = subprocess.run(
+            ["git", "ls-tree", "-r", "-z", "--full-tree", commit],
             cwd=root,
             capture_output=True,
             timeout=60,
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if completed.returncode != 0:
+    if listing.returncode != 0:
         return None
+
+    blobs: list[tuple[str, str]] = []
+    for record in listing.stdout.split(b"\0"):
+        meta, _, path = record.partition(b"\t")
+        if not path:
+            continue
+        fields = meta.split()
+        if len(fields) < 3 or fields[1] != b"blob":
+            continue
+        blobs.append((fields[2].decode("ascii"), path.decode("utf-8", "surrogateescape")))
+    if not blobs:
+        return None
+
     try:
-        with tarfile.open(fileobj=io.BytesIO(completed.stdout), mode="r:") as archive:
-            return {
-                member.name: sha256_bytes(archive.extractfile(member).read())  # type: ignore[union-attr]
-                for member in archive.getmembers()
-                if member.isfile()
-            }
-    except (tarfile.TarError, OSError):
+        described = subprocess.run(
+            ["git", "cat-file", "--batch"],
+            cwd=root,
+            input=b"".join(sha.encode("ascii") + b"\n" for sha, _ in blobs),
+            capture_output=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
         return None
+    if described.returncode != 0:
+        return None
+
+    data = described.stdout
+    offset = 0
+    tree: dict[str, str] = {}
+    for _, path in blobs:
+        header_end = data.find(b"\n", offset)
+        if header_end < 0:
+            return None
+        fields = data[offset:header_end].split()
+        if len(fields) < 3 or fields[1] != b"blob":
+            return None
+        size = int(fields[2])
+        start = header_end + 1
+        tree[path] = sha256_bytes(data[start : start + size])
+        # `cat-file --batch` prints the blob, then one newline before the next header.
+        offset = start + size + 1
+    return tree
 
 
 GENERATED_BASENAMES = {"PKG-INFO", "setup.cfg"}
