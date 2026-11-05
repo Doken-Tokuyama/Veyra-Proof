@@ -1,4 +1,4 @@
-## Unreleased
+## What changed in v0.7.4
 
 - **cargo-audit advisories are reported once.** cargo-audit prints each RustSec id
   on both its `ID:` line and its `URL:` line; the parser now deduplicates the ids
@@ -18,6 +18,9 @@
 - **Advisories can be non-rejecting without disabling everything.**
   `[policy].fail_on_advisories = false` records the choice in `report.json` and keeps
   the advisories visible while every other blocker or error still rejects.
+
+## What changed in v0.7.3
+
 - **Python quality gate.** `ruff` now enforces the base, import and bugbear
   rules over `src`, `tests` and `scripts`, and `mypy` checks `src/veyra_proof`,
   `tests` and `scripts`, including unannotated function bodies. `ruff format
