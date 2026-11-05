@@ -40,7 +40,7 @@ from veyra_proof.models import (
     Severity,
     ToolResult,
 )
-from veyra_proof.tools.base import AuditContext, Tool, utc_now_iso
+from veyra_proof.tools.base import AuditContext, Tool, locked_build_target, utc_now_iso
 
 RULE_VACUOUS = "E2E00"
 RULE_EXIT = "E2E01"
@@ -176,6 +176,7 @@ def run_scenario(
     context: AuditContext,
     executable: Path,
     scenario: E2eScenario,
+    binary_name: str,
 ) -> dict[str, Any]:
     """Execute one declared journey and compare with what was observed."""
     sandbox = Path(tempfile.mkdtemp(prefix="veyra-e2e-"))
@@ -191,6 +192,7 @@ def run_scenario(
         findings = evaluate_scenario(scenario, result, sandbox)
         observed = {
             "name": scenario.name,
+            "binary": binary_name,
             "argv": argv[1:],
             "observed_exit": result.exit_code,
             "expect_exit": scenario.expect_exit,
@@ -329,9 +331,15 @@ def evaluate_scenario(scenario: E2eScenario, result: Any, sandbox: Path) -> list
     return findings
 
 
-def _log_lines(executable: Path, digest: str, outcomes: list[dict[str, Any]]) -> str:
+def _log_lines(binaries: dict[str, tuple[Path, str]], outcomes: list[dict[str, Any]]) -> str:
     """Evidence a human can re-check without rerunning the audit."""
-    lines = [f"binary: {executable} (sha256={digest})"]
+    lines = []
+    if binaries:
+        for name in sorted(binaries):
+            executable, digest = binaries[name]
+            lines.append(f"binary: {name} -> {executable} (sha256={digest})")
+    else:
+        lines.append("binary: (not built)")
     for outcome in outcomes:
         observed = outcome["observed"]
         failed = len([f for f in outcome["findings"] if f.severity != "info"])
@@ -342,10 +350,12 @@ def _log_lines(executable: Path, digest: str, outcomes: list[dict[str, Any]]) ->
         else:
             verdict = "PASS"
         lines.append(
-            "SCENARIO name={name!r} argv={argv!r} observed_exit={observed_exit} "
+            "SCENARIO name={name!r} binary={binary!r} argv={argv!r} "
+            "observed_exit={observed_exit} "
             "expect_exit={expect_exit} expect_failure={expect_failure} "
             "duration={duration_seconds}s verdict={verdict}".format(
                 name=observed["name"],
+                binary=observed.get("binary", "?"),
                 argv=observed["argv"],
                 observed_exit=observed["observed_exit"],
                 expect_exit=(
@@ -395,8 +405,9 @@ class E2eTool(Tool):
         e2e = context.config.e2e
         if e2e.errors or not e2e.scenarios:
             return []
+        default_target = e2e.binaries[0] if e2e.binaries else "<built-binary>"
         return [self.cargo_command(context, build_command(context))] + [
-            ["<built-binary>", *scenario.argv] for scenario in e2e.scenarios
+            [scenario.binary or default_target, *scenario.argv] for scenario in e2e.scenarios
         ]
 
     def run(self, context: AuditContext) -> ToolResult:
@@ -429,7 +440,7 @@ class E2eTool(Tool):
                     command,
                     elapsed=time.perf_counter() - clock,
                     findings=findings,
-                    log=_log_lines(Path("(not built)"), "-", []),
+                    log=_log_lines({}, []),
                     build_stderr="",
                     exit_code=1,
                     status="FINDINGS",
@@ -463,6 +474,28 @@ class E2eTool(Tool):
             )
 
         if build.exit_code != 0:
+            locked = locked_build_target(
+                f"{build.stdout}\n{build.stderr}", Path(context.workspace.target_directory)
+            )
+            if locked:
+                return self._finish(
+                    context,
+                    started,
+                    command,
+                    elapsed=time.perf_counter() - clock,
+                    findings=findings,
+                    log=_log_lines({}, []),
+                    build_stderr=_excerpt(build.stderr),
+                    exit_code=1,
+                    status="INCONCLUSIVE",
+                    summary=(
+                        f"cargo build could not replace {locked} because another process "
+                        "holds it. Close the process that holds the binary and re-run; no "
+                        "end-to-end scenario was executed."
+                    ),
+                    severity="warning",
+                    environment_extra={"build_blocker": "locked-target", "locked_path": locked},
+                )
             findings.append(
                 Finding(
                     rule=RULE_CONFIG,
@@ -485,7 +518,7 @@ class E2eTool(Tool):
                 command,
                 elapsed=time.perf_counter() - clock,
                 findings=findings,
-                log=_log_lines(Path("(build failed)"), "-", []),
+                log=_log_lines({}, []),
                 build_stderr=_excerpt(build.stderr),
                 exit_code=1,
                 status="ERROR",
@@ -500,7 +533,7 @@ class E2eTool(Tool):
                 command,
                 elapsed=time.perf_counter() - clock,
                 findings=findings,
-                log=_log_lines(Path("(no binary produced)"), "-", []),
+                log=_log_lines({}, []),
                 build_stderr=_excerpt(build.stderr),
                 exit_code=1,
                 status="INCONCLUSIVE",
@@ -533,21 +566,17 @@ class E2eTool(Tool):
                     command,
                     elapsed=time.perf_counter() - clock,
                     findings=findings,
-                    log=_log_lines(Path("(declared binary missing)"), "-", []),
+                    log=_log_lines({}, []),
                     build_stderr=_excerpt(build.stderr),
                     exit_code=1,
                     status="FINDINGS",
                     summary="declared [e2e].binaries were not produced by the build",
                     severity="error",
                 )
-            target_name = e2e.binaries[0]
-        else:
-            target_name = sorted(executables)[0]
-
-        executable = Path(executables[target_name])
-        digest = _sha256(executable)
+        default_target = e2e.binaries[0] if e2e.binaries else sorted(executables)[0]
 
         outcomes: list[dict[str, Any]] = []
+        binaries_used: dict[str, tuple[Path, str]] = {}
         for scenario in e2e.scenarios:
             if not scenario_asserts_observable(scenario):
                 findings.append(
@@ -567,7 +596,46 @@ class E2eTool(Tool):
                         "scenario observes behavior.",
                     )
                 )
-            outcome = run_scenario(context, executable, scenario)
+            target_name = scenario.binary or default_target
+            if target_name not in executables:
+                missing = Finding(
+                    rule=RULE_CONFIG,
+                    severity="error",
+                    confidence="high",
+                    file="veyra.toml",
+                    line=None,
+                    excerpt=scenario.name,
+                    explanation=(
+                        f"Scenario '{scenario.name}' names binary {target_name!r}, but the "
+                        f"build produced {sorted(executables)!r}."
+                    ),
+                    recommendation="Declare a binary target the build actually produces.",
+                )
+                findings.append(missing)
+                outcomes.append(
+                    {
+                        "observed": {
+                            "name": scenario.name,
+                            "binary": target_name,
+                            "argv": scenario.argv,
+                            "observed_exit": None,
+                            "expect_exit": scenario.expect_exit,
+                            "expect_failure": scenario.expect_failure,
+                            "duration_seconds": 0.0,
+                            "timed_out": False,
+                            "error": f"binary {target_name!r} was not built",
+                            "observed_stdout": "",
+                            "observed_stderr": "",
+                            "files_after": [],
+                        },
+                        "findings": [missing],
+                    }
+                )
+                continue
+            if target_name not in binaries_used:
+                executable = Path(executables[target_name])
+                binaries_used[target_name] = (executable, _sha256(executable))
+            outcome = run_scenario(context, binaries_used[target_name][0], scenario, target_name)
             outcomes.append(outcome)
             findings.extend(outcome["findings"])
 
@@ -579,9 +647,13 @@ class E2eTool(Tool):
         ]
         passed = len(outcomes) - len(failed) - len(timed_out)
 
-        log = _log_lines(executable, digest, outcomes)
+        log = _log_lines(binaries_used, outcomes)
+        if len(binaries_used) == 1:
+            target_label = next(iter(binaries_used))
+        else:
+            target_label = f"{len(binaries_used)} binaries ({', '.join(sorted(binaries_used))})"
         summary_scenarios = (
-            f"{len(outcomes)} scenario(s) executed against {target_name}: "
+            f"{len(outcomes)} scenario(s) executed against {target_label}: "
             f"{passed} passed, {len(failed)} failed"
         )
         if timed_out:
@@ -616,9 +688,8 @@ class E2eTool(Tool):
             status=status,
             summary=summary,
             severity=severity,
-            binary=executable,
-            digest=digest,
-            target_name=target_name,
+            binaries=binaries_used,
+            target_name=default_target,
             outcomes=outcomes,
         )
 
@@ -635,11 +706,11 @@ class E2eTool(Tool):
         status: ResultStatus,
         summary: str,
         severity: Severity,
-        binary: Path | None = None,
-        digest: str | None = None,
+        binaries: dict[str, tuple[Path, str]] | None = None,
         target_name: str | None = None,
         outcomes: list[dict[str, Any]] | None = None,
         elapsed: float | None = None,
+        environment_extra: dict[str, str] | None = None,
     ) -> ToolResult:
         out, err = self.write_logs(context, log, build_stderr)
         environment: dict[str, str] = {
@@ -648,9 +719,17 @@ class E2eTool(Tool):
             "scenarios_declared": str(len(context.config.e2e.scenarios)),
             "scenarios_executed": str(len(outcomes or [])),
         }
-        if target_name:
+        if binaries:
+            environment["binaries"] = ",".join(sorted(binaries))
+            if len(binaries) == 1:
+                environment["binary"] = next(iter(binaries))
+        elif target_name:
             environment["binary"] = target_name
-        artifact_hashes = {str(binary): digest} if binary and digest else {}
+        if environment_extra:
+            environment.update(environment_extra)
+        artifact_hashes = {
+            str(executable): digest for executable, digest in (binaries or {}).values()
+        }
         tr = self.make_result(
             status=status,
             severity=severity,

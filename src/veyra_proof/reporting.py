@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from veyra_proof.models import AuditDecision, FailOn, ToolResult
+from veyra_proof.models import AuditDecision, FailOn, Finding, ToolResult
+
+ADVISORY_RULE_RE = re.compile(r"^(?:rustsec-advisory|RUSTSEC-\d{4}-\d+)$", re.IGNORECASE)
+
+
+def is_advisory_finding(finding: Finding) -> bool:
+    """Whether a finding is a RustSec advisory rather than another audit failure."""
+    return bool(ADVISORY_RULE_RE.fullmatch(finding.rule))
 
 
 def utc_timestamp_dir() -> str:
@@ -52,6 +60,7 @@ def decide(
     hash_incongruence: bool = False,
     missing_required: list[str] | None = None,
     excluded_required: list[str] | None = None,
+    fail_on_advisories: bool = True,
 ) -> AuditDecision:
     """
     Decision rules:
@@ -65,6 +74,8 @@ def decide(
     - Blocker/error findings → REJECTED.
     - Optional tool ERROR still rejects when fail_on != none.
     - Optional INCONCLUSIVE only rejects when fail_on=inconclusive.
+    - `fail_on_advisories=false` keeps advisory findings in the report while
+      removing only those error findings from the rejection decision.
     """
     missing = list(missing_required or [])
     excluded = list(excluded_required or [])
@@ -79,6 +90,7 @@ def decide(
     inconclusive_required: list[str] = []
     inconclusive_optional: list[str] = []
     missing_skips: list[str] = []
+    advisory_findings: list[str] = []
 
     for tid in required:
         if tid not in by_id:
@@ -105,6 +117,9 @@ def decide(
             # which is what --fail-on findings exists to prevent.
             for f in r.findings:
                 label = f"{r.tool_id}:{f.rule}"
+                if not fail_on_advisories and f.severity == "error" and is_advisory_finding(f):
+                    advisory_findings.append(label)
+                    continue
                 if f.severity == "blocker":
                     blockers.append(label)
                 elif f.severity == "error":
@@ -181,11 +196,13 @@ def decide(
                 "INCONCLUSIVE", f"Required tool did not complete cleanly: {tid}", 2
             )
 
-    return AuditDecision(
-        "ACCEPTED",
-        "All required profile tools executed without blocking findings",
-        0,
-    )
+    reason = "All required profile tools executed without blocking findings"
+    if advisory_findings:
+        reason += (
+            f"; {len(set(advisory_findings))} advisory finding(s) retained but not "
+            "rejecting because policy.fail_on_advisories=false"
+        )
+    return AuditDecision("ACCEPTED", reason, 0)
 
 
 def classify_project_changes(
@@ -310,6 +327,7 @@ def render_markdown(
     changes: list[dict[str, Any]],
     evidence_manifest: str = "manifest.json",
     timing: dict[str, Any] | None = None,
+    excluded: list[dict[str, Any]] | None = None,
 ) -> str:
     ok = [r for r in results if r.status == "OK"]
     problems = [r for r in results if r.status == "FINDINGS"]
@@ -362,6 +380,18 @@ def render_markdown(
     if skipped:
         for r in skipped:
             lines.append(f"- {r.display_name} — {r.summary}")
+    else:
+        lines.append("- (none)")
+
+    lines.extend(["", "## Excluded", ""])
+    if excluded:
+        for item in excluded:
+            source = item.get("source") or "configuration"
+            reason = item.get("reason")
+            suffix = f" — {reason}" if reason else ""
+            lines.append(
+                f"- {item.get('tool_id')}: removed by {source} (deliberate; no result){suffix}"
+            )
     else:
         lines.append("- (none)")
 

@@ -121,6 +121,7 @@ class TestSafetyTableIsReal:
             "fail_on_lint_allow",
             "fail_on_todo",
             "fail_on_unimplemented",
+            "fail_on_advisories",
             "deny_unsafe",
         ):
             assert knob in row, f"{knob} is not documented"

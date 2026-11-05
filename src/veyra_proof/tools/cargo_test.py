@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from veyra_proof.models import DetectionResult, ToolResult
 from veyra_proof.tools.base import (
     AuditContext,
     Tool,
     classify_from_command,
+    locked_build_target,
     parse_ignored_tests,
     parse_test_failures,
     utc_now_iso,
@@ -42,6 +44,29 @@ class CargoTestTool(Tool):
         result = context.runner.run(cmd, cwd=context.root, timeout=context.timeout_seconds)
         out, err = self.write_logs(context, result.stdout, result.stderr)
         text = result.stdout + "\n" + result.stderr
+        locked = locked_build_target(text, Path(context.workspace.target_directory))
+        if locked:
+            # The suite never started: cargo could not replace the executable.
+            # Reporting a subset of tests as ERROR would hide that distinction.
+            tr = self.make_result(
+                status="INCONCLUSIVE",
+                severity="warning",
+                summary=(
+                    f"cargo test could not start because {locked} is held by another "
+                    "process. Close the process that holds it and re-run; no test "
+                    "result is available."
+                ),
+                started_at=started,
+                command=cmd,
+                exit_code=result.exit_code,
+                duration_seconds=result.duration_seconds,
+                stdout_path=out,
+                stderr_path=err,
+                findings=[],
+                environment={"build_blocker": "locked-target", "locked_path": locked},
+            )
+            self.save_result_json(context, tr)
+            return tr
         findings = parse_test_failures(text)
         # An ignored test is reported either way. The policy decides whether it
         # is an error or a note, never whether it is hidden.

@@ -30,6 +30,7 @@ from veyra_proof.reporting import (
     write_evidence,
 )
 from veyra_proof.tool_registry import (
+    excluded_tools,
     registry_rows,
     required_tool_ids,
     select_tools,
@@ -294,6 +295,13 @@ def _prepare_context(
         yes=bool(args.yes),
         unknown_includes=[],
     )
+    plan["excluded"] = excluded_tools(
+        args.profile,
+        include=include,
+        exclude=exclude,
+        config_enable=config.tools.enable,
+        config_disable=config.tools.disable,
+    )
     return ctx, plan, tools, detections, install_plans, None
 
 
@@ -506,6 +514,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         hash_incongruence=bool(unauthorized),
         missing_required=missing_required,
         excluded_required=excluded_required,
+        fail_on_advisories=ctx.config.policy.fail_on_advisories,
     )
     if unauthorized:
         decision.reason = (
@@ -529,6 +538,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         results=results,
         changes=changes,
         timing=timing,
+        excluded=plan.get("excluded", []),
     )
     report_json = {
         "workspace": ctx.workspace.to_dict(),
@@ -537,6 +547,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "changes": changes,
         "required_tool_ids": req_ids,
         "config_defaults_used": ctx.config.defaults_used,
+        "excluded": plan.get("excluded", []),
+        "policy": {"fail_on_advisories": ctx.config.policy.fail_on_advisories},
         "install_authorization": plan.get("install_authorization"),
         "timing": timing,
         "timestamp_utc": timestamp,
@@ -554,6 +566,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "hashes_before": hashes_before,
         "hashes_after": hashes_after,
         "required_tool_ids": req_ids,
+        "excluded": plan.get("excluded", []),
+        "policy": {"fail_on_advisories": ctx.config.policy.fail_on_advisories},
     }
     write_evidence(
         ctx.evidence_dir,

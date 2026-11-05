@@ -48,6 +48,10 @@ class PolicyConfig:
     # runs and always reports both digests; only the blocking decision is opt-in.
     require_reproducible_build: bool = False
     require_lockfile: bool = False
+    # RustSec advisories stay visible and counted either way. A project can
+    # accept the ones with no fixed release without turning every other
+    # blocking finding off; the setting is recorded in report.json.
+    fail_on_advisories: bool = True
 
 
 @dataclass
@@ -116,6 +120,8 @@ class E2eScenario:
 
     name: str
     argv: list[str]
+    binary: str | None = None
+    """Target binary for this journey. ``None`` keeps ``[e2e].binaries[0]``."""
     stdin: str = ""
     expect_exit: int | None = None
     """Explicit exit code. ``None`` means "no exact code declared": the default
@@ -205,6 +211,7 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
             return []
         return list(value)
 
+    binaries = _str_list("binaries")
     scenarios: list[E2eScenario] = []
     raw_scenarios = raw.get("scenarios", []) or []
     if not isinstance(raw_scenarios, list):
@@ -235,6 +242,19 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
         if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
             errors.append(f"{where} ({name}): 'argv' must be a list of strings")
             continue
+
+        binary: str | None = None
+        if "binary" in entry:
+            declared_binary = entry["binary"]
+            if not isinstance(declared_binary, str) or not declared_binary.strip():
+                errors.append(f"{where} ({name}): 'binary' must be a non-empty string")
+                continue
+            binary = declared_binary.strip()
+            if binaries and binary not in binaries:
+                errors.append(
+                    f"{where} ({name}): binary {binary!r} is not listed in "
+                    f"[e2e].binaries {binaries!r}"
+                )
 
         expect_exit: int | None = None
         if "expect_exit" in entry:
@@ -284,6 +304,7 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
             E2eScenario(
                 name=name,
                 argv=list(argv),
+                binary=binary,
                 stdin=stdin,
                 expect_exit=expect_exit,
                 expect_stdout_regex=regexes["expect_stdout_regex"],
@@ -297,7 +318,7 @@ def _parse_e2e(raw: dict[str, Any]) -> E2eConfig:
         build_profile=build_profile,
         features=_str_list("features"),
         no_default_features=bool(raw.get("no_default_features", False)),
-        binaries=_str_list("binaries"),
+        binaries=binaries,
         timeout_seconds=timeout_seconds,
         scenarios=scenarios,
         errors=errors,
@@ -356,6 +377,7 @@ def _load_config_file(path: Path) -> VeyraConfig:
             fail_on_cfg_tricks=bool(policy.get("fail_on_cfg_tricks", False)),
             require_reproducible_build=bool(policy.get("require_reproducible_build", False)),
             require_lockfile=bool(policy.get("require_lockfile", False)),
+            fail_on_advisories=bool(policy.get("fail_on_advisories", True)),
         ),
         tools=ToolsConfig(
             enable=list(tools.get("enable", []) or []),

@@ -570,3 +570,92 @@ def test_required_tool_ids_demands_e2e_only_when_journeys_are_declared() -> None
 
     # Never required in a profile that does not run it, or when excluded.
     assert "veyra-e2e" not in required_tool_ids("quick", config=configured, selected_ids=["clippy"])
+
+
+def test_scenarios_can_target_different_declared_binaries(tmp_path: Path) -> None:
+    other = tmp_path / "target" / "release" / "other"
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_bytes(b"other-binary")
+    runner = FakeRunner(
+        build_stdout=artifact_line(tmp_path / EXE)
+        + "\n"
+        + artifact_line(other, name="other")
+        + "\n"
+    )
+    ctx = make_context(
+        tmp_path,
+        E2eConfig(
+            binaries=["demo", "other"],
+            scenarios=[
+                scenario(),
+                scenario(name="other journey", argv=["other"], binary="other"),
+            ],
+        ),
+        runner,
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "OK"
+    assert runner.calls[1] == [str(tmp_path / EXE), "add", "1", "2"]
+    assert runner.calls[2] == [str(other), "other"]
+    assert {str(tmp_path / EXE), str(other)} <= set(result.artifact_hashes)
+    assert result.environment["binaries"] == "demo,other"
+
+
+def test_a_scenario_binary_that_was_not_built_is_a_config_finding(tmp_path: Path) -> None:
+    runner = FakeRunner(build_stdout=artifact_line(tmp_path / EXE) + "\n")
+    ctx = make_context(
+        tmp_path,
+        E2eConfig(binaries=["demo"], scenarios=[scenario(binary="other")]),
+        runner,
+    )
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "FINDINGS"
+    assert "E2ECFG" in rules(result)
+    assert any("names binary 'other'" in f.explanation for f in result.findings)
+
+
+def test_a_locked_build_artifact_is_inconclusive_with_the_path(tmp_path: Path) -> None:
+    locked = (
+        "error: failed to remove file `C:\\w\\target\\debug\\neo-erp-api.exe`\n"
+        "\nCaused by:\n  Acceso denegado. (os error 5)\n"
+    )
+    runner = FakeRunner(build_exit=101, build_stderr=locked)
+    ctx = make_context(tmp_path, E2eConfig(scenarios=[scenario()]), runner)
+
+    result = E2eTool().run(ctx)
+
+    assert result.status == "INCONCLUSIVE"
+    assert "Close the process" in result.summary
+    assert result.environment["build_blocker"] == "locked-target"
+    assert result.environment["locked_path"].endswith("neo-erp-api.exe")
+
+
+def test_e2e_scenario_binary_is_loaded_and_must_be_declared(tmp_path: Path) -> None:
+    (tmp_path / "veyra.toml").write_text(
+        "[e2e]\n"
+        'binaries = ["one", "two"]\n'
+        "[[e2e.scenarios]]\n"
+        'name = "two"\n'
+        "argv = []\n"
+        'binary = "two"\n',
+        encoding="utf-8",
+    )
+    config = load_veyra_config(tmp_path)
+    assert config.e2e.scenarios[0].binary == "two"
+    assert config.e2e.errors == []
+
+    (tmp_path / "veyra.toml").write_text(
+        "[e2e]\n"
+        'binaries = ["one", "two"]\n'
+        "[[e2e.scenarios]]\n"
+        'name = "three"\n'
+        "argv = []\n"
+        'binary = "three"\n',
+        encoding="utf-8",
+    )
+    config = load_veyra_config(tmp_path)
+    assert any("not listed" in error for error in config.e2e.errors)

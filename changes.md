@@ -1,5 +1,23 @@
 ## Unreleased
 
+- **cargo-audit advisories are reported once.** cargo-audit prints each RustSec id
+  on both its `ID:` line and its `URL:` line; the parser now deduplicates the ids
+  before writing findings, so seven advisories are seven findings plus at most one
+  summary instead of fourteen.
+- **Deliberate exclusions are evidence.** `--exclude` and `[tools].disable` are
+  recorded in `report.json` as `excluded`, with source and reason, and listed under
+  `## Excluded` in `report.md`. A reader can now distinguish a tool removed on
+  purpose from one the profile never selected.
+- **A locked target artifact is an environment condition.** On Windows, when a
+  running process prevents cargo from replacing `target/.../<app>.exe`, `veyra-e2e`
+  and `cargo-test` report `INCONCLUSIVE` with the locked path and an instruction to
+  close the process; `cargo-test` no longer reports a partial suite as if it ran.
+- **E2E scenarios can name their binary.** `[[e2e.scenarios]].binary` selects one of
+  the declared `[e2e].binaries`; absence keeps the first binary as the default, so
+  existing journeys do not change target.
+- **Advisories can be non-rejecting without disabling everything.**
+  `[policy].fail_on_advisories = false` records the choice in `report.json` and keeps
+  the advisories visible while every other blocker or error still rejects.
 - **Python quality gate.** `ruff` now enforces the base, import and bugbear
   rules over `src`, `tests` and `scripts`, and `mypy` checks `src/veyra_proof`,
   `tests` and `scripts`, including unannotated function bodies. `ruff format

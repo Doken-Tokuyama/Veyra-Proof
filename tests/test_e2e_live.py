@@ -149,3 +149,75 @@ def test_a_wrong_expectation_is_rejected_with_the_value_observed(fixture_copy: P
     assert f"observed {_excerpt('3' + chr(10))!r}" in mismatch["explanation"], (
         "the finding has to quote what was actually observed, not just say it differed"
     )
+
+
+def _add_second_binary(target: Path) -> None:
+    """Give the copied workspace a second CLI and one scenario per binary."""
+    binary = target / "src" / "bin" / "second.rs"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_text(
+        "fn main() {\n"
+        "    let mut args = std::env::args().skip(1);\n"
+        "    match (args.next(), args.next()) {\n"
+        '        (Some(name), None) => println!("hola, {name}"),\n'
+        "        _ => {\n"
+        '            eprintln!("uso: second <nombre>");\n'
+        "            std::process::exit(2);\n"
+        "        }\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (target / "veyra.toml").write_text(
+        "[e2e]\n"
+        'build_profile = "release"\n'
+        "timeout_seconds = 120\n"
+        'binaries = ["demo_crate", "second"]\n'
+        "\n"
+        "[[e2e.scenarios]]\n"
+        'name = "demo adds"\n'
+        'binary = "demo_crate"\n'
+        'argv = ["add", "1", "2"]\n'
+        "expect_exit = 0\n"
+        "expect_stdout_regex = '^3\\r?\\n?$'\n"
+        "\n"
+        "[[e2e.scenarios]]\n"
+        'name = "second greets"\n'
+        'binary = "second"\n'
+        'argv = ["mundo"]\n'
+        "expect_exit = 0\n"
+        "expect_stdout_regex = '^hola, mundo\\r?\\n?$'\n",
+        encoding="utf-8",
+    )
+
+
+def test_two_real_binaries_are_each_driven_by_their_own_scenario(
+    fixture_copy: Path,
+) -> None:
+    """A workspace with two CLIs must exercise both, not silently use binaries[0]."""
+    _add_second_binary(fixture_copy)
+
+    completed = _audit(fixture_copy)
+
+    assert completed.returncode == 0, completed.stdout[-4000:] + completed.stderr[-2000:]
+    report = json.loads(completed.stdout)
+    entry = next(r for r in report["results"] if r["tool_id"] == "veyra-e2e")
+    assert entry["status"] == "OK", entry["summary"]
+    assert entry["environment"]["binaries"] == "demo_crate,second"
+
+    evidence = _latest_evidence(fixture_copy)
+    log = (evidence / "tools" / "veyra-e2e" / "stdout.log").read_text(encoding="utf-8")
+    scenarios = [line for line in log.splitlines() if line.startswith("SCENARIO ")]
+    assert len(scenarios) == 2
+    assert any("binary='demo_crate'" in line for line in scenarios)
+    assert any("binary='second'" in line for line in scenarios)
+    assert f"observed_stdout: '{_excerpt('hola, mundo' + chr(10))}'" in log
+
+    logs = {"stdout.log", "stderr.log", "skip.txt"}
+    hashes = entry["artifact_hashes"]
+    binary_keys = [key for key in hashes if Path(key).name not in logs]
+    assert len(binary_keys) == 2, f"expected two pinned binaries, got {sorted(hashes)}"
+    for key in binary_keys:
+        path = Path(key)
+        assert path.is_file()
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == hashes[key]

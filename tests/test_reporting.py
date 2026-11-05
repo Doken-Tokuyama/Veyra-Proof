@@ -271,3 +271,85 @@ def test_markdown_structure() -> None:
     assert "## Skipped" in md
     assert "## Errors" in md
     assert "## Project Changes" in md
+
+
+def _advisory(rule: str = "RUSTSEC-2026-0367") -> Finding:
+    return Finding(
+        rule=rule,
+        severity="error",
+        confidence="high",
+        file="Cargo.lock",
+        line=None,
+        excerpt=rule,
+        explanation="advisory reported by cargo-audit",
+        recommendation="inspect the advisory",
+    )
+
+
+def test_advisories_reject_by_default() -> None:
+    result = _result("audit", "FINDINGS", [_advisory()], "error")
+    decision = decide([result], fail_on="findings", required_tool_ids=["audit"])
+    assert decision.decision == "REJECTED"
+    assert "audit:RUSTSEC-2026-0367" in decision.reason
+
+
+def test_fail_on_advisories_false_keeps_the_finding_but_accepts() -> None:
+    result = _result("audit", "FINDINGS", [_advisory()], "error")
+    decision = decide(
+        [result],
+        fail_on="findings",
+        required_tool_ids=["audit"],
+        fail_on_advisories=False,
+    )
+    assert decision.decision == "ACCEPTED"
+    assert "policy.fail_on_advisories=false" in decision.reason
+
+
+def test_fail_on_advisories_false_does_not_excuse_other_errors() -> None:
+    other = Finding(
+        rule="missing-lockfile",
+        severity="error",
+        confidence="high",
+        file="Cargo.lock",
+        line=None,
+        excerpt=None,
+        explanation="policy requires a lockfile",
+        recommendation="commit Cargo.lock",
+    )
+    result = _result("audit", "FINDINGS", [other], "error")
+    decision = decide(
+        [result],
+        fail_on="findings",
+        required_tool_ids=["audit"],
+        fail_on_advisories=False,
+    )
+    assert decision.decision == "REJECTED"
+    assert "missing-lockfile" in decision.reason
+
+
+def test_the_advisory_policy_is_off_by_default_and_read_from_toml(tmp_path: Path) -> None:
+    from veyra_proof.config import load_veyra_config
+
+    assert PolicyConfig().fail_on_advisories is True
+    (tmp_path / "veyra.toml").write_text("[policy]\nfail_on_advisories = false\n", encoding="utf-8")
+    assert load_veyra_config(tmp_path).policy.fail_on_advisories is False
+
+
+def test_markdown_lists_deliberate_exclusions() -> None:
+    md = render_markdown(
+        workspace="/tmp/w",
+        timestamp="t",
+        os_arch="Linux / x86_64",
+        toolchain="stable",
+        profile="quick",
+        decision=decide(
+            [_result("clippy", "OK")],
+            fail_on="findings",
+            required_tool_ids=["clippy"],
+        ),
+        results=[_result("clippy", "OK")],
+        changes=[],
+        excluded=[{"tool_id": "veyra-e2e", "source": "--exclude", "reason": None}],
+    )
+    assert "## Excluded" in md
+    assert "veyra-e2e: removed by --exclude" in md

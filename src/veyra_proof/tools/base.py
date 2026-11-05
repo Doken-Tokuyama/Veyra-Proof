@@ -335,6 +335,43 @@ STALE_LOCK_MESSAGE = (
     "--update-lockfile to authorize the change."
 )
 
+# A running binary on Windows makes the linker unable to replace its own output.
+# Cargo reports that as `failed to remove file` plus a permission error; it is a
+# condition of the machine, not a defect in the workspace. The tool has to say
+# INCONCLUSIVE and name the path, the same way a stale lockfile does.
+PERMISSION_DENIED_RE = re.compile(
+    r"permission denied|os error 5|access is denied|acceso denegado", re.IGNORECASE
+)
+REMOVE_FILE_RE = re.compile(r"failed to remove file\s+[`'\"]?(?P<path>[^`'\"\r\n]+)", re.IGNORECASE)
+
+
+def locked_build_target(text: str, target_directory: Path | None = None) -> str | None:
+    """The target artifact cargo could not replace because another process holds it.
+
+    Returns ``None`` for every other failure, so a genuine compile error keeps
+    its ERROR classification. The target check keeps an unrelated permission
+    problem (a source file owned by another user) from being excused as an
+    environmental lock.
+    """
+    if not PERMISSION_DENIED_RE.search(text):
+        return None
+    match = REMOVE_FILE_RE.search(text)
+    if match is None:
+        return None
+    path = match.group("path").strip()
+    if not path:
+        return None
+    normalized = path.replace("\\", "/")
+    parts = normalized.lower().split("/")
+    if target_directory is not None:
+        target = target_directory.name.lower()
+        if target and target not in parts:
+            return None
+    elif "target" not in parts:
+        return None
+    return path
+
+
 # `#![feature(..)]` is only accepted on nightly. Benchmarks and examples often
 # use it (bench = criterion, test = libtest), so `--all-targets` fails on a
 # perfectly healthy stable project.

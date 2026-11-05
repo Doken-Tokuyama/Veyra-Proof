@@ -619,6 +619,12 @@ class TestTheRunSaysWhereItsTimeWent:
         assert "timing" in report and "timing" in manifest
         assert report["timing"]["tools_timed"] >= 1
         assert report["timing"]["wall_seconds"] >= report["timing"]["tool_seconds"]
+        assert report["excluded"] == [
+            {"tool_id": "veyra-e2e", "source": "--exclude", "reason": None}
+        ]
+        assert report["policy"]["fail_on_advisories"] is True
+        assert "## Excluded" in markdown
+        assert "veyra-e2e: removed by --exclude" in markdown
         assert "## Time" in markdown
         assert "total in tools:" in markdown
 
@@ -874,3 +880,53 @@ class TestCargoAuditRunsWhenTheLockAppears:
         )
         assert result.status == "FINDINGS"
         assert result.findings[0].rule == "missing-lockfile"
+
+
+def test_each_rustsec_advisory_is_reported_once(tmp_path: Path) -> None:
+    """cargo-audit prints each id in `ID:` and again in `URL:`; dedupe them."""
+    from veyra_proof.tools.audit import CargoAuditTool
+
+    (tmp_path / "Cargo.lock").write_text("version = 4\n", encoding="utf-8")
+    text = (
+        "Crate: zip\nID: RUSTSEC-2026-0367\n"
+        "URL: https://rustsec.org/advisories/RUSTSEC-2026-0367\n"
+        "Crate: zip\nID: RUSTSEC-2026-0368\n"
+        "URL: https://rustsec.org/advisories/RUSTSEC-2026-0368\n"
+    )
+
+    class Runner:
+        def run(self, command: list[str], **kwargs: Any) -> Any:
+            return _result(command, exit_code=1, stdout=text)
+
+    result = CargoAuditTool().run(_context(tmp_path, Runner()))
+    rules = [f.rule for f in result.findings]
+    assert rules.count("rustsec-advisory") == 1
+    assert [rule for rule in rules if rule.startswith("RUSTSEC-")] == [
+        "RUSTSEC-2026-0367",
+        "RUSTSEC-2026-0368",
+    ]
+    assert len(rules) == 3
+
+
+def test_a_locked_test_binary_is_inconclusive_not_a_project_error(tmp_path: Path) -> None:
+    """Windows cannot replace a running executable; the suite did not run."""
+    from veyra_proof.tools.cargo_test import CargoTestTool
+
+    locked = (
+        "error: failed to remove file `C:\\w\\target\\debug\\w.exe`\n"
+        "\nCaused by:\n  Acceso denegado. (os error 5)\n"
+    )
+    runner = ScriptedRunner(
+        {
+            "cargo test --workspace": _result(
+                ["cargo", "test", "--workspace"], exit_code=101, stderr=locked
+            )
+        }
+    )
+
+    result = CargoTestTool().run(_context(tmp_path, runner))
+
+    assert result.status == "INCONCLUSIVE"
+    assert result.findings == []
+    assert "Close the process" in result.summary
+    assert result.environment["locked_path"].endswith("w.exe")

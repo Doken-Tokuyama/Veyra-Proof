@@ -103,6 +103,7 @@ timeout_seconds = 60
 
 [[e2e.scenarios]]
 name = "add sums two integers"
+binary = "app"               # optional; defaults to binaries[0]
 argv = ["add", "1", "2"]
 expect_exit = 0
 expect_stdout_regex = '^3\r?\n?$'
@@ -116,7 +117,7 @@ expect_stdout_regex = '^3\r?\n?$'
 |---------|---------|
 | `OK` | every scenario observed what it declared |
 | `FINDINGS` | `E2E00` vacuous scenario, `E2E01` exit mismatch, `E2E02` output/file mismatch, `E2ECFG` invalid configuration, `E2E03` informational reachability note |
-| `INCONCLUSIVE` | the build or a scenario timed out, or the workspace builds no binary |
+| `INCONCLUSIVE` | the build or a scenario timed out, a target artifact was locked by another process, or the workspace builds no binary |
 | `SKIPPED` | no scenarios declared: behavior was **not** verified |
 | `ERROR` | `cargo build` failed; nothing was executed |
 
@@ -127,6 +128,16 @@ Required in every profile exactly when scenarios are declared (and available to 
 Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` with `report.md`, `report.json`, `manifest.json`, per-tool logs, hashes.
 
 Every log a tool writes — `stdout.log`, `stderr.log`, and `skip.txt` when a tool skips after running — is pinned by its sha256 in that tool's `artifact_hashes`, so the report states what its own evidence held. `scripts/ci_assert_evidence.py` recomputes those digests and fails a report whose log changed after the run, was deleted, or is not pinned at all for an `OK` verdict.
+
+`report.json` records `excluded` (tools removed by `--exclude` or `[tools].disable`,
+with source and reason) and `policy.fail_on_advisories`; `report.md` lists the same
+exclusions under `## Excluded`.
+
+## Advisory policy
+
+RustSec advisories are error findings by default. `[policy] fail_on_advisories = false`
+keeps them visible and counted while removing only those findings from rejection;
+every other blocker or error still rejects. This is narrower than `--fail-on none`.
 
 ## Safety defaults
 

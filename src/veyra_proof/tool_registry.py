@@ -277,6 +277,45 @@ def select_tools(
     return selected
 
 
+def excluded_tools(
+    profile: str,
+    *,
+    include: Iterable[str] | None = None,
+    exclude: Iterable[str] | None = None,
+    config_enable: Iterable[str] | None = None,
+    config_disable: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Tools removed from this run's selection, with why they are absent.
+
+    A missing result and a deliberate exclusion look identical in ``results``.
+    Recording the exclusion beside the results keeps the evidence readable:
+    ``--exclude`` and ``[tools].disable`` are decisions, not omissions.
+    """
+    include_list = [x.strip() for x in (include or []) if x.strip()]
+    exclude_set = {x.strip() for x in (exclude or []) if x.strip()}
+    enable_set = {x.strip() for x in (config_enable or []) if x.strip()}
+    disable_set = {x.strip() for x in (config_disable or []) if x.strip()}
+    known = set(tool_by_id())
+
+    if include_list:
+        candidates = include_list
+    else:
+        candidates = list(PROFILE_ORDER.get(profile, PROFILE_ORDER["standard"]))
+        candidates.extend(tid for tid in enable_set if tid in known and tid not in candidates)
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for tid in candidates:
+        if tid in seen or tid not in known:
+            continue
+        seen.add(tid)
+        if tid in exclude_set:
+            rows.append({"tool_id": tid, "source": "--exclude", "reason": None})
+        elif tid in disable_set:
+            rows.append({"tool_id": tid, "source": "veyra.toml", "reason": "[tools].disable"})
+    return rows
+
+
 def unknown_tool_ids(ids: Iterable[str] | None) -> list[str]:
     """Ids that name no tool in this release.
 

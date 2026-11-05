@@ -201,6 +201,20 @@ switch the tool off. All of them are always reported — the tool's log opens wi
 blocking decision changes. Fuzz harnesses (`tests/fuzz/`, `fuzz/fuzz_targets/`) are
 excluded from the weak-oracle rule: a libfuzzer target asserts through the engine.
 
+### Advisory policy
+
+RustSec advisories are error findings by default. A project can keep them visible
+without allowing only those findings to reject the run:
+
+```toml
+[policy]
+fail_on_advisories = false   # default true; recorded in report.json
+```
+
+This is narrower than `--fail-on none`: every other blocker or error still rejects,
+and each advisory remains counted at its real severity in `report.json` and
+`report.md`.
+
 ## Tool statuses
 
 `INSTALLED`, `MISSING`, `INSTALLING`, `SKIPPED`, `ERROR`, `OK`, `FINDINGS`, `INCONCLUSIVE`
@@ -226,6 +240,11 @@ Default: `PATH/.veyra/evidence/<UTC_TIMESTAMP>/` containing `report.md`, `report
 
 Each tool's logs are pinned by sha256 in the report, so the evidence can be checked against the claim rather than trusted: `python scripts/ci_assert_evidence.py <workspace-path>` runs a real audit of that workspace root and then recomputes the digests, failing when a log was edited after the run, is missing, or backs an `OK` verdict without ever being pinned. The argument is a workspace path (a directory containing `Cargo.toml`), not an evidence directory.
 
+`report.json` also records `excluded` (each tool removed by `--exclude` or
+`[tools].disable`, with its source and reason) and `policy.fail_on_advisories`.
+`report.md` carries the same exclusions under `## Excluded`, so a deliberate
+exclusion cannot be mistaken for a check the profile never asked for.
+
 ## Optional `veyra.toml`
 
 Not created automatically. See the project specification for the full schema (`critical_paths`, policy flags, fuzz targets, mutants paths, `[e2e]` scenarios, etc.). For an unpublished workspace, `[semver] baseline = "v0.9.1"` (and optionally `release_type`) gives `cargo-semver-checks` a Git baseline instead of a registry version; without one the tool is skipped with that reason. A baseline git cannot resolve is reported `ERROR` with the exit code — never as an API break.
@@ -237,9 +256,11 @@ Static checks and unit tests cannot tell a wired feature from a placeholder: bot
 ```toml
 [e2e]
 build_profile = "release"        # the profile you actually ship
+binaries = ["app", "app-admin"]  # optional; first is the default target
 
 [[e2e.scenarios]]
 name = "add sums two integers"
+binary = "app"                    # optional; defaults to binaries[0]
 argv = ["add", "1", "2"]
 expect_exit = 0
 expect_stdout_regex = '^3\r?\n?$'
@@ -253,6 +274,11 @@ expect_stderr_regex = 'division by zero'
 
 - **No scenarios declared → `SKIPPED`, never `OK`.** No declaration means no verification.
 - A scenario that asserts nothing observable (exit 0 and nothing else) is reported as **vacuous** (`E2E00`) instead of passing.
+- A scenario can drive a different declared binary with `binary = "name"`; when it is
+  absent, `binaries[0]` remains the default, so existing journeys do not change target.
+- A Windows build that cannot replace a target executable because a process holds it is
+  `INCONCLUSIVE` (with the locked path and the action to close it), not `ERROR`; the same
+  condition makes `cargo-test` say the suite did not run instead of reporting a subset.
 - Every failure quotes what was observed; a timeout is `INCONCLUSIVE`, never a pass and never a failure.
 - The binary's sha256, per-scenario exit codes and captured output are written to `tools/veyra-e2e/stdout.log`.
 - Runs in `standard` and `hardened` (any profile via `--include veyra-e2e`), and becomes **required** exactly when scenarios are declared.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 
 from veyra_proof.installer import cargo_install_plan
@@ -141,19 +142,19 @@ class CargoAuditTool(Tool):
                     recommendation="Review advisories and upgrade or patch affected crates.",
                 )
             )
-            # extract RUSTSEC ids if present
-            import re
-
-            for m in re.finditer(r"RUSTSEC-\d{4}-\d+", text):
+            # cargo-audit prints each advisory id on its `ID:` line and again in
+            # its URL. Find every id once, preserving the order cargo printed it.
+            advisory_ids = list(dict.fromkeys(re.findall(r"RUSTSEC-\d{4}-\d+", text)))
+            for advisory_id in advisory_ids:
                 findings.append(
                     Finding(
-                        rule=m.group(0),
+                        rule=advisory_id,
                         severity="error",
                         confidence="high",
                         file="Cargo.lock",
                         line=None,
-                        excerpt=m.group(0),
-                        explanation=f"Advisory {m.group(0)} reported by cargo-audit.",
+                        excerpt=advisory_id,
+                        explanation=f"Advisory {advisory_id} reported by cargo-audit.",
                         recommendation="Inspect the advisory details in the audit log.",
                     )
                 )
